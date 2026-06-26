@@ -1,23 +1,85 @@
 #!/usr/bin/env python3
 """
 CrispASR TTS Web UI v3 — CrispASR Management
-Version detection, update from GitHub, model switching.
+Version detection, update (download prebuilt binary), model switching.
 Imports: config, database
 """
 
 import json
+import os
+import platform
 import re
+import shutil
 import subprocess
+import sys
+import tarfile
+import tempfile
 import threading
 import time
 import urllib.request
+from pathlib import Path
 
 from . import config
 from . import database
 
+# ─── Platform detection ─────────────────────────────────────
+
+def detect_crispasr_asset() -> str:
+    """Return the CrispASR release asset name for the current platform.
+    E.g. 'crispasr-linux-arm64.tar.gz', 'crispasr-linux-x86_64.tar.gz'
+    """
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+
+    # Normalize architecture
+    if machine in ("aarch64", "arm64"):
+        arch = "arm64"
+    elif machine in ("x86_64", "amd64"):
+        arch = "x86_64"
+    else:
+        arch = machine
+
+    # Check for CUDA (prefer if nvidia-smi works)
+    gpu_suffix = ""
+    if system == "linux" and arch == "x86_64":
+        try:
+            r = subprocess.run(["nvidia-smi"], capture_output=True, timeout=5)
+            if r.returncode == 0:
+                gpu_suffix = "-cuda"
+        except Exception:
+            pass
+
+    # Check for Vulkan on non-CUDA systems
+    if not gpu_suffix and system == "linux" and arch == "x86_64":
+        try:
+            r = subprocess.run(["vulkaninfo"], capture_output=True, timeout=5)
+            if r.returncode == 0:
+                gpu_suffix = "-vulkan"
+        except Exception:
+            pass
+
+    if system == "linux":
+        return f"crispasr-linux-{arch}{gpu_suffix}.tar.gz"
+    elif system == "darwin":
+        return "crispasr-macos.tar.gz"
+    elif system == "windows":
+        return f"crispasr-windows-{arch}-cpu.zip"
+    else:
+        return f"crispasr-linux-{arch}.tar.gz"
+
+
+def has_systemd() -> bool:
+    """Check if systemd is available for service management."""
+    try:
+        return shutil.which("systemctl") is not None
+    except Exception:
+        return False
+
+
+# ─── Version helpers ────────────────────────────────────────
 
 def get_latest_tag(src_dir) -> str:
-    """Get the latest git tag from the CrispASR source repo."""
+    """Get the latest git tag from a source directory (kept for backward compat)."""
     try:
         result = subprocess.run(
             ["git", "-C", str(src_dir), "tag", "--sort=-v:refname"],
@@ -28,22 +90,21 @@ def get_latest_tag(src_dir) -> str:
                 return line.strip()
     except Exception:
         pass
-    return "main"  # fallback
+    return "main"
 
 
 def get_crispasr_version() -> str:
-    """Get current CrispASR version."""
+    """Get current CrispASR version by running the binary with --version."""
     try:
-        binary = config.CRISPASR_DIR / "bin" / "crispasr"
-        if not binary.exists():
-            binary = config.CRISPASR_DIR / "crispasr"
+        binary = _find_crispasr_binary()
+        if not binary:
+            return "unknown"
         result = subprocess.run(
             [str(binary), "--version"],
             capture_output=True, text=True, timeout=10,
         )
         for line in (result.stdout + result.stderr).splitlines():
             if "version" in line.lower():
-                # Extract version number
                 m = re.search(r'(\d+\.\d+\.\d+)', line)
                 if m:
                     return m.group(1)
@@ -66,6 +127,24 @@ def get_latest_crispasr_version() -> tuple[str, str]:
         return "", ""
 
 
+def _find_crispasr_binary() -> Path | None:
+    """Locate the crispasr binary: CRISPASR_DIR/bin/crispasr, CRISPASR_DIR/crispasr, or PATH."""
+    # Check standard locations relative to CRISPASR_DIR
+    for candidate in [
+        config.CRISPASR_DIR / "bin" / "crispasr",
+        config.CRISPASR_DIR / "crispasr",
+    ]:
+        if candidate.exists():
+            return candidate
+    # Check PATH
+    found = shutil.which("crispasr")
+    if found:
+        return Path(found)
+    return None
+
+
+# ─── Update logic ───────────────────────────────────────────
+
 _update_lock = threading.Lock()
 _update_status: dict = {"running": False, "step": "", "log": ""}
 
@@ -77,9 +156,7 @@ def get_update_status() -> dict:
 
 
 def start_update() -> tuple[bool, str]:
-    """Try to start an update. Returns (started, message).
-    Thread-safe: acquires _update_lock internally.
-    """
+    """Try to start an update. Returns (started, message)."""
     with _update_lock:
         if _update_status.get("running"):
             return False, "更新正在进行中"
@@ -87,54 +164,127 @@ def start_update() -> tuple[bool, str]:
     return True, "更新已启动"
 
 
+def _restart_crispasr_service():
+    """Restart CrispASR via systemd (if available) or signal-based restart."""
+    if has_systemd():
+        try:
+            subprocess.run(["sudo", "systemctl", "restart", "crispasr"],
+                           capture_output=True, timeout=30)
+            return
+        except Exception:
+            pass
+    # Fallback: try sending SIGHUP to crispasr process for graceful restart
+    # This is a best-effort approach; users without systemd manage their own processes
+    pass
+
+
+def _wait_for_crispasr(port: int = 8080, timeout: int = 30):
+    """Wait for CrispASR HTTP server to become ready."""
+    for _ in range(timeout // 2):
+        time.sleep(2)
+        try:
+            req = urllib.request.Request(f"http://localhost:{port}/v1/models", method="GET")
+            with urllib.request.urlopen(req, timeout=3):
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def update_crispasr(task_callback=None) -> dict:
-    """Pull latest CrispASR source and rebuild. Returns {success, message}.
-    Note: _update_status["running"] is set by the caller (_do_crispasr_update)."""
+    """Download latest CrispASR prebuilt binary and install it.
+    Returns {success, message, log}.
+    """
     global _update_status
-    # Don't re-check running here — caller already set it and checked for duplicates
     _update_status = {"running": True, "step": "starting", "log": ""}
+    log_lines = []
 
     try:
-        build_dir = config.CRISPASR_DIR
-        # Git repo is at parent of build dir; prefer that for git operations
-        src_dir = build_dir.parent if (build_dir.parent / ".git").exists() else build_dir
+        # 1. Get latest version info
+        _update_status["step"] = "Checking latest version"
+        latest_ver, latest_tag = get_latest_crispasr_version()
+        if not latest_ver:
+            _update_status["running"] = False
+            return {"success": False, "message": "Cannot fetch latest version from GitHub"}
 
-        steps = [
-            ("Checking source", ["git", "-C", str(src_dir), "fetch", "--tags"]),
-            ("Resetting local changes", ["git", "-C", str(src_dir), "checkout", "--", "."]),
-            ("Checking out latest", ["git", "-C", str(src_dir), "checkout", get_latest_tag(src_dir)]),
-            ("Configuring", ["cmake", "-B", str(build_dir), "-S", str(src_dir),
-                             "-DCMAKE_BUILD_TYPE=Release",
-                             "-DGGML_CPU_ARM_ARCH=armv8.2-a",
-                             "-DCMAKE_C_FLAGS=-march=armv8.2-a+dotprod+fp16",
-                             "-DCMAKE_CXX_FLAGS=-march=armv8.2-a+dotprod+fp16"]),
-            ("Building", ["cmake", "--build", str(build_dir), "--config", "Release", "-j2"]),
-        ]
+        log_lines.append(f"Latest CrispASR: {latest_ver} ({latest_tag})")
 
-        log_lines = []
-        for step_name, cmd in steps:
-            _update_status["step"] = step_name
-            log_lines.append(f"=== {step_name} ===")
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-            log_lines.append(result.stdout[-500:] if len(result.stdout) > 500 else result.stdout)
-            if result.returncode != 0:
-                log_lines.append(f"ERROR: {result.stderr[-500:]}")
-                _update_status["log"] = "\n".join(log_lines)
-                _update_status["running"] = False
-                return {"success": False, "message": f"Failed at: {step_name}", "log": "\n".join(log_lines)}
+        # 2. Determine the right asset for this platform
+        asset_name = detect_crispasr_asset()
+        download_url = (
+            f"https://github.com/CrispStrobe/CrispASR/releases/download/"
+            f"{latest_tag}/{asset_name}"
+        )
+        log_lines.append(f"Platform: {asset_name}")
 
-        # Restart CrispASR service
-        _update_status["step"] = "Restarting service"
-        subprocess.run(["sudo", "systemctl", "restart", "crispasr"], capture_output=True, timeout=30)
-        # Wait for CrispASR to come back up before checking version
-        for _ in range(10):
-            time.sleep(2)
+        # 3. Download
+        _update_status["step"] = f"Downloading {asset_name}"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            archive_path = Path(tmpdir) / asset_name
             try:
-                test_req = urllib.request.Request("http://localhost:8080/v1/models", method="GET")
-                with urllib.request.urlopen(test_req, timeout=3):
+                urllib.request.urlretrieve(download_url, archive_path)
+            except Exception as e:
+                _update_status["running"] = False
+                _update_status["log"] = "\n".join(log_lines + [f"Download failed: {e}"])
+                return {"success": False, "message": f"Download failed: {e}"}
+
+            archive_size = archive_path.stat().st_size
+            log_lines.append(f"Downloaded {archive_size / 1e6:.1f} MB")
+
+            # 4. Extract
+            _update_status["step"] = "Extracting"
+            extract_dir = Path(tmpdir) / "extract"
+            extract_dir.mkdir()
+
+            if asset_name.endswith(".tar.gz"):
+                with tarfile.open(archive_path, "r:gz") as tar:
+                    tar.extractall(extract_dir)
+            elif asset_name.endswith(".zip"):
+                import zipfile
+                with zipfile.ZipFile(archive_path) as zf:
+                    zf.extractall(extract_dir)
+
+            # 5. Find the binary in the extracted directory
+            new_binary = None
+            for root, dirs, files in os.walk(extract_dir):
+                for f in files:
+                    if f == "crispasr" or f == "crispasr.exe":
+                        new_binary = Path(root) / f
+                        break
+                if new_binary:
                     break
-            except:
-                continue
+
+            if not new_binary:
+                _update_status["running"] = False
+                return {"success": False, "message": "Cannot find crispasr binary in archive"}
+
+            # 6. Install: copy to CRISPASR_DIR/bin/
+            _update_status["step"] = "Installing"
+            install_dir = config.CRISPASR_DIR / "bin"
+            install_dir.mkdir(parents=True, exist_ok=True)
+            dest = install_dir / "crispasr"
+
+            # Backup old binary
+            if dest.exists():
+                backup = dest.with_name("crispasr.bak")
+                shutil.copy2(dest, backup)
+
+            shutil.copy2(new_binary, dest)
+            dest.chmod(0o755)
+            log_lines.append(f"Installed to {dest}")
+
+            # Also copy crispasr-quantize if present
+            for sibling in new_binary.parent.iterdir():
+                if sibling.name.startswith("crispasr") and sibling != new_binary:
+                    shutil.copy2(sibling, install_dir / sibling.name)
+                    (install_dir / sibling.name).chmod(0o755)
+
+        # 7. Restart CrispASR service
+        _update_status["step"] = "Restarting service"
+        _restart_crispasr_service()
+
+        # 8. Wait for CrispASR to come back up
+        _wait_for_crispasr()
 
         new_ver = get_crispasr_version()
         log_lines.append(f"Updated to {new_ver}")
@@ -144,9 +294,11 @@ def update_crispasr(task_callback=None) -> dict:
 
     except Exception as e:
         _update_status["running"] = False
-        _update_status["log"] = str(e)
+        _update_status["log"] = "\n".join(log_lines + [str(e)])
         return {"success": False, "message": str(e)}
 
+
+# ─── Model switching ────────────────────────────────────────
 
 def switch_model(model_key: str) -> dict:
     """Switch CrispASR to a different model by restarting with new args."""
@@ -155,10 +307,9 @@ def switch_model(model_key: str) -> dict:
 
     model_info = config.MODEL_REGISTRY[model_key]
 
-    # Build new crispasr.service ExecStart
-    binary = config.CRISPASR_DIR / "bin" / "crispasr"
-    if not binary.exists():
-        binary = config.CRISPASR_DIR / "crispasr"
+    binary = _find_crispasr_binary()
+    if not binary:
+        return {"success": False, "message": "CrispASR binary not found"}
 
     cmd_parts = [
         str(binary),
@@ -172,39 +323,35 @@ def switch_model(model_key: str) -> dict:
 
     exec_start = " ".join(cmd_parts)
 
-    # Update systemd service
-    service_path = "/etc/systemd/system/crispasr.service"
-    try:
-        # M10: Read file directly instead of shelling out to cat
-        with open(service_path) as f:
-            service_content = f.read()
+    if has_systemd():
+        service_path = "/etc/systemd/system/crispasr.service"
+        try:
+            with open(service_path) as f:
+                service_content = f.read()
 
-        # Replace ExecStart line
-        new_content = re.sub(
-            r'ExecStart=.*',
-            f'ExecStart={exec_start}',
-            service_content,
-        )
+            new_content = re.sub(
+                r'ExecStart=.*',
+                f'ExecStart={exec_start}',
+                service_content,
+            )
 
-        # Write updated service file
-        subprocess.run(
-            ["sudo", "tee", service_path],
-            input=new_content, capture_output=True, text=True, timeout=5,
-        )
-        subprocess.run(["sudo", "systemctl", "daemon-reload"], capture_output=True, timeout=10)
-        subprocess.run(["sudo", "systemctl", "restart", "crispasr"], capture_output=True, timeout=30)
+            subprocess.run(
+                ["sudo", "tee", service_path],
+                input=new_content, capture_output=True, text=True, timeout=5,
+            )
+            subprocess.run(["sudo", "systemctl", "daemon-reload"], capture_output=True, timeout=10)
+            subprocess.run(["sudo", "systemctl", "restart", "crispasr"], capture_output=True, timeout=30)
 
-        # Wait for service to come back up
-        time.sleep(3)
+            time.sleep(3)
 
-        # Save current model to settings
-        conn = database.db_conn()
-        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                     ("current_model", model_key))
-        conn.commit()
-        conn.close()
+            conn = database.db_conn()
+            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                         ("current_model", model_key))
+            conn.commit()
+            conn.close()
 
-        return {"success": True, "message": f"Switched to {model_info['description']}", "model": model_key}
-
-    except Exception as e:
-        return {"success": False, "message": str(e)}
+            return {"success": True, "message": f"Switched to {model_info['description']}", "model": model_key}
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+    else:
+        return {"success": False, "message": "Model switching requires systemd. Please restart CrispASR manually with: " + exec_start}

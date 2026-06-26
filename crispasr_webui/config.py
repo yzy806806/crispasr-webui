@@ -8,12 +8,19 @@ import os
 from pathlib import Path
 
 # ─── Paths ──────────────────────────────────────────────
-# Default values; may be overridden at runtime via set_data_dir()
-DATA_DIR: Path = Path(__file__).parent.parent / "tts_data"
+# Default values; may be overridden at runtime via set_data_dir() / set_crispasr_dir()
+# When installed via install.sh, CRISPASR_DIR defaults to /opt/crispasr
+# and DATA_DIR defaults to /var/lib/crispasr-webui
+
+_CRISPASR_DIR_DEFAULT = os.environ.get(
+    "CRISPASR_DIR",
+    str(Path(__file__).parent.parent),  # fallback: parent of package dir
+)
+DATA_DIR: Path = Path(os.environ.get("CRISPASR_DATA_DIR", "")) or Path(__file__).parent.parent / "tts_data"
 DB_PATH: Path = DATA_DIR / "history.db"
 AUDIO_DIR: Path = DATA_DIR / "audio"
 UPLOAD_DIR: Path = DATA_DIR / "uploads"
-CRISPASR_DIR: Path = Path(__file__).parent.parent  # CrispASR binary lives in parent of package dir
+CRISPASR_DIR: Path = Path(_CRISPASR_DIR_DEFAULT)
 
 # ─── Auth ───────────────────────────────────────────────
 JWT_SECRET: str = os.environ.get("JWT_SECRET", "")
@@ -25,13 +32,18 @@ MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024 # 10 MB voice upload
 
 
 def set_data_dir(data_dir: str | Path) -> None:
-    """Re-assign all path globals at runtime (called from main())."""
-    global DATA_DIR, DB_PATH, AUDIO_DIR, UPLOAD_DIR, CRISPASR_DIR
+    """Re-assign data path globals at runtime (called from main())."""
+    global DATA_DIR, DB_PATH, AUDIO_DIR, UPLOAD_DIR
     DATA_DIR = Path(data_dir)
     DB_PATH = DATA_DIR / "history.db"
     AUDIO_DIR = DATA_DIR / "audio"
     UPLOAD_DIR = DATA_DIR / "uploads"
-    # CRISPASR_DIR stays at package root, not under data_dir
+
+
+def set_crispasr_dir(crispasr_dir: str | Path) -> None:
+    """Set CrispASR installation directory at runtime."""
+    global CRISPASR_DIR
+    CRISPASR_DIR = Path(crispasr_dir)
 
 
 def set_jwt_secret(secret: str) -> None:
@@ -40,7 +52,7 @@ def set_jwt_secret(secret: str) -> None:
 
 
 # ─── Model Registry ────────────────────────────────────
-# Models that CrispASR supports for TTS on ARM
+# Models that CrispASR supports for TTS
 # Each model defines: backend, gguf patterns, built-in voices, capabilities
 MODEL_REGISTRY: dict[str, dict] = {
     "qwen3-tts-customvoice-1.7b-f16": {
