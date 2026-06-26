@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CrispASR TTS Web UI v3 — Configuration
+CrispASR TTS Web UI v0.9 — Configuration
 Bottom-level module; no imports from other project modules.
 """
 

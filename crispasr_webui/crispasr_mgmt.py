@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CrispASR TTS Web UI v3 — CrispASR Management
+CrispASR TTS Web UI v0.9 — CrispASR Management
 Version detection, update (download prebuilt binary), model switching.
 Imports: config, database
 """

@@ -1,4 +1,4 @@
-"""CrispASR TTS Web UI v3 — Modular package."""
+"""CrispASR TTS Web UI v0.9 — Modular package."""
 
 from .server import main
 

@@ -98,10 +98,6 @@ class TTSHandler(BaseHTTPRequestHandler):
         elif path == "/api/voices":
             self._list_voices()
 
-        elif path.startswith("/api/voices/"):
-            name = unquote(path.split("/")[-1])
-            self._delete_voice(name)
-
         elif path == "/api/crispasr/version":
             self._get_crispasr_version()
 
@@ -168,6 +164,9 @@ class TTSHandler(BaseHTTPRequestHandler):
         elif path.startswith("/api/presets/"):
             name = unquote(path.split("/")[-1])
             self._delete_preset(name)
+        elif path.startswith("/api/voices/"):
+            name = unquote(path.split("/")[-1])
+            self._delete_voice(name)
         else:
             self.send_error(404)
 
@@ -560,24 +559,32 @@ class TTSHandler(BaseHTTPRequestHandler):
             speed = data.get("speed", 1.0)
             fmt = data.get("fmt", "wav")
             instruct = data.get("instruct", "")
-            # Enqueue two tasks with same text but different voices
-            task_id_a = str(uuid.uuid4())
-            task_info_a = {
-                "text": text, "voice": voice_a, "speed": speed,
-                "fmt": fmt, "instruct": instruct,
-                "status": "queued", "created_at": time.time(),
-            }
-            task_queue.enqueue_task(task_id_a, task_info_a)
 
-            task_id_b = str(uuid.uuid4())
-            task_info_b = {
-                "text": text, "voice": voice_b, "speed": speed,
-                "fmt": fmt, "instruct": instruct,
-                "status": "queued", "created_at": time.time(),
-            }
-            task_queue.enqueue_task(task_id_b, task_info_b)
+            results = []
+            for voice in (voice_a, voice_b):
+                task_id = uuid.uuid4().hex[:12]
+                final_chunks = [{"text": text, "voice": voice, "instruct": instruct}]
+                # Write to DB
+                conn = database.db_conn()
+                conn.execute(
+                    "INSERT INTO history (id,text,voice,instruct,speed,fmt,status,chunks_config,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (task_id, text[:2000], voice, instruct, speed, fmt, "pending",
+                     json.dumps(final_chunks, ensure_ascii=False), time.time()),
+                )
+                conn.commit()
+                conn.close()
+                # Build complete task_info matching _do_generate structure
+                task_info = {
+                    "status": "pending", "progress": 0, "total": 1,
+                    "current": 0, "audio_url": None, "error": None, "duration": 0,
+                    "chunks_config": final_chunks, "global_voice": voice,
+                    "global_instruct": instruct, "speed": speed, "fmt": fmt,
+                    "api_base": self.api_base, "queue_pos": 0,
+                }
+                task_queue.enqueue_task(task_id, task_info)
+                results.append(task_id)
 
-            self._send_json(200, {"task_a": task_id_a, "task_b": task_id_b})
+            self._send_json(200, {"task_a": results[0], "task_b": results[1]})
         except Exception as e:
             self._send_json(500, {"error": str(e)})
 
@@ -602,11 +609,24 @@ class TTSHandler(BaseHTTPRequestHandler):
                 text = str(text).strip()
                 if not text:
                     continue
-                task_id = str(uuid.uuid4())
+                task_id = uuid.uuid4().hex[:12]
+                final_chunks = [{"text": text, "voice": voice, "instruct": instruct}]
+                # Write to DB
+                conn = database.db_conn()
+                conn.execute(
+                    "INSERT INTO history (id,text,voice,instruct,speed,fmt,status,chunks_config,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    (task_id, text[:2000], voice, instruct, speed, fmt, "pending",
+                     json.dumps(final_chunks, ensure_ascii=False), time.time()),
+                )
+                conn.commit()
+                conn.close()
+                # Build complete task_info matching _do_generate structure
                 task_info = {
-                    "text": text, "voice": voice, "speed": speed,
-                    "fmt": fmt, "instruct": instruct,
-                    "status": "queued", "created_at": time.time(),
+                    "status": "pending", "progress": 0, "total": 1,
+                    "current": 0, "audio_url": None, "error": None, "duration": 0,
+                    "chunks_config": final_chunks, "global_voice": voice,
+                    "global_instruct": instruct, "speed": speed, "fmt": fmt,
+                    "api_base": self.api_base, "queue_pos": 0,
                 }
                 task_queue.enqueue_task(task_id, task_info)
                 task_ids.append(task_id)

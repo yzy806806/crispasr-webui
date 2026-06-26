@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CrispASR TTS Web UI v3 — Task Queue
+CrispASR TTS Web UI v0.9 — Task Queue
 Background TTS generation with queue, position tracking, resume support.
 Imports: config, database, audio_utils, text_split
 """

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CrispASR TTS Web UI v3 — Text Splitting with Inline Markup
+CrispASR TTS Web UI v0.9 — Text Splitting with Inline Markup
 No project-internal imports (stdlib only).
 """
 

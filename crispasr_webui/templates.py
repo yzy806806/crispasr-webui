@@ -1101,11 +1101,12 @@ function stopRecording() {
 async function loadCompareVoices() {
   try {
     const resp = await apiFetch('/api/voices');
-    const voices = await resp.json();
-    const opts = voices.map(v => `<option value="${escAttr(v.name)}">${escHtml(v.name)}</option>`).join('');
-    const builtIn = '<option value="serena">serena</option><option value="ethan">ethan</option><option value="chelsie">chelsie</option>';
-    document.getElementById('compareVoiceA').innerHTML = builtIn + opts;
-    document.getElementById('compareVoiceB').innerHTML = builtIn + opts;
+    const customVoices = await resp.json();
+    const builtIn = (modelInfo && modelInfo.voices ? modelInfo.voices : ['serena'])
+      .map(v => `<option value="${escAttr(v)}">${escHtml(v)}</option>`).join('');
+    const custom = customVoices.map(v => `<option value="${escAttr(v.name)}">${escHtml(v.name)}</option>`).join('');
+    document.getElementById('compareVoiceA').innerHTML = builtIn + custom;
+    document.getElementById('compareVoiceB').innerHTML = builtIn + custom;
   } catch(e) { console.error(e); }
 }
 
@@ -1155,10 +1156,11 @@ async function pollCompareTasks(taskIdA, taskIdB) {
       try {
         const r = await apiFetch(`/api/task/${taskIdA}`);
         const d = await r.json();
-        if (d.status === 'completed' && d.audio_file) {
+        if (d.status === 'done' && d.audio_url) {
           doneA = true;
-          document.getElementById('compareAudioA').src = '/api/audio/' + d.audio_file + '?token=' + getToken();
-        } else if (d.status === 'failed') {
+          const token = getToken();
+          document.getElementById('compareAudioA').src = d.audio_url + (d.audio_url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
+        } else if (d.status === 'error') {
           doneA = true;
           statusEl.textContent = 'A 合成失败: ' + (d.error || '未知错误');
         }
@@ -1168,10 +1170,11 @@ async function pollCompareTasks(taskIdA, taskIdB) {
       try {
         const r = await apiFetch(`/api/task/${taskIdB}`);
         const d = await r.json();
-        if (d.status === 'completed' && d.audio_file) {
+        if (d.status === 'done' && d.audio_url) {
           doneB = true;
-          document.getElementById('compareAudioB').src = '/api/audio/' + d.audio_file + '?token=' + getToken();
-        } else if (d.status === 'failed') {
+          const token = getToken();
+          document.getElementById('compareAudioB').src = d.audio_url + (d.audio_url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
+        } else if (d.status === 'error') {
           doneB = true;
           statusEl.textContent = 'B 合成失败: ' + (d.error || '未知错误');
         }
@@ -1244,15 +1247,15 @@ async function pollBatchTasks() {
     try {
       const r = await apiFetch(`/api/task/${id}`);
       const d = await r.json();
-      if (d.status === 'completed') {
+      if (d.status === 'done') {
         statusEl.textContent = '✅';
         statusEl.dataset.done = '1';
         done++;
-      } else if (d.status === 'failed') {
+      } else if (d.status === 'error') {
         statusEl.textContent = '❌';
         statusEl.dataset.done = '1';
         done++;
-      } else if (d.status === 'processing') {
+      } else if (d.status === 'generating') {
         statusEl.textContent = '🔄';
       } else {
         statusEl.textContent = '⏳';

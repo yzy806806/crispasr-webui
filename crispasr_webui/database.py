@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CrispASR TTS Web UI v3 — Database
+CrispASR TTS Web UI v0.9 — Database
 SQLite initialisation, migrations, connection helper.
 Only imports from config.
 """

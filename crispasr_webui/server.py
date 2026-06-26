@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CrispASR TTS Web UI v3 — Server entry point."""
+"""CrispASR TTS Web UI v0.9 — Server entry point."""
 
 import argparse
 import os
@@ -11,7 +11,7 @@ from .handlers import TTSHandler, ThreadedHTTPServer
 
 
 def main():
-    parser = argparse.ArgumentParser(description="CrispASR TTS Web UI v3")
+    parser = argparse.ArgumentParser(description="CrispASR TTS Web UI v0.9")
     parser.add_argument("--listen", default="0.0.0.0", help="Listen address")
     parser.add_argument("--port", type=int, default=8888, help="Listen port")
     parser.add_argument("--api", default="http://localhost:8080", help="CrispASR API base URL")
@@ -42,7 +42,7 @@ def main():
     TTSHandler.password = args.password
 
     server = ThreadedHTTPServer((args.listen, args.port), TTSHandler)
-    print(f"🎙️  CrispASR TTS Web UI v3")
+    print(f"🎙️  CrispASR TTS Web UI v0.9")
     print(f"   URL:       http://{args.listen}:{args.port}")
     print(f"   API:       {args.api}")
     print(f"   Data:      {config.DATA_DIR}")

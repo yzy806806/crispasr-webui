@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CrispASR TTS Web UI v3 — JWT Authentication
+CrispASR TTS Web UI v0.9 — JWT Authentication
 Hand-rolled JWT, zero external dependencies.
 Only imports from config.
 """
