@@ -68,20 +68,24 @@ def _crispasr_status() -> dict:
 
 # ─── CPU usage (two /proc/stat samples) ─────────────────
 _cpu_prev: tuple | None = None
+_cpu_prev_time: float = 0
 
 def _cpu_usage() -> dict:
     """Calculate CPU usage from /proc/stat delta."""
-    global _cpu_prev
+    global _cpu_prev, _cpu_prev_time
     try:
         vals = _read_proc_stat()
+        now = time.monotonic()
         if _cpu_prev is None:
+            # First call: store baseline, return 0 to avoid blocking
             _cpu_prev = vals
-            time.sleep(0.1)
-            vals = _read_proc_stat()
+            _cpu_prev_time = now
+            return {"percent": 0}
 
         d_idle = vals[0] - _cpu_prev[0]
         d_total = vals[1] - _cpu_prev[1]
         _cpu_prev = vals
+        _cpu_prev_time = now
 
         pct = (1 - d_idle / d_total) * 100 if d_total > 0 else 0
         return {"percent": round(pct, 1)}

@@ -238,11 +238,18 @@ def update_crispasr(task_callback=None) -> dict:
 
             if asset_name.endswith(".tar.gz"):
                 with tarfile.open(archive_path, "r:gz") as tar:
-                    tar.extractall(extract_dir)
+                    # Filter members to prevent path traversal (CVE-2007-4559)
+                    members = [m for m in tar.getmembers()
+                               if not m.name.startswith("/") and ".." not in m.name.split("/")]
+                    tar.extractall(extract_dir, members=members)
             elif asset_name.endswith(".zip"):
                 import zipfile
                 with zipfile.ZipFile(archive_path) as zf:
-                    zf.extractall(extract_dir)
+                    # Filter members to prevent path traversal
+                    for info in zf.infolist():
+                        if info.filename.startswith("/") or ".." in info.filename.split("/"):
+                            continue
+                        zf.extract(info, extract_dir)
 
             # 5. Find the binary in the extracted directory
             new_binary = None

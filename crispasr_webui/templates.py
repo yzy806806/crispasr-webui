@@ -568,7 +568,10 @@ async function apiFetch(url, opts = {}) {
   const token = getToken();
   const headers = opts.headers || {};
   if (token) headers['Authorization'] = 'Bearer ' + token;
-  headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+  // Only set Content-Type for non-FormData bodies (browser sets multipart boundary automatically)
+  if (opts.body && !(opts.body instanceof FormData)) {
+    headers['Content-Type'] = headers['Content-Type'] || 'application/json';
+  }
   const resp = await fetch(url, { ...opts, headers });
   if (resp.status === 401) { doLogout(); throw new Error('登录已过期'); }
   return resp;
@@ -616,7 +619,7 @@ function showApp() {
   document.getElementById('loginPage').style.display = 'none';
   document.getElementById('appPage').style.display = 'block';
   loadModelInfo();
-  loadHistory();
+  // History/Status/Logs loaded on-demand when user navigates to those panels
 }
 
 // ─── Model ────────────────────────────
@@ -668,7 +671,16 @@ async function loadModelList() {
     models.forEach(m => {
       const div = document.createElement('div');
       div.className = 'model-card' + (m.key === (modelInfo?.key) ? ' active' : '');
-      div.innerHTML = `<div><div class="model-name">${m.key}</div><div class="model-desc">${m.description}</div></div>`;
+      const nameSpan = document.createElement('div');
+      nameSpan.className = 'model-name';
+      nameSpan.textContent = m.key;
+      const descSpan = document.createElement('div');
+      descSpan.className = 'model-desc';
+      descSpan.textContent = m.description || '';
+      const wrapper = document.createElement('div');
+      wrapper.appendChild(nameSpan);
+      wrapper.appendChild(descSpan);
+      div.appendChild(wrapper);
       div.onclick = () => switchModel(m.key);
       list.appendChild(div);
     });
@@ -951,7 +963,17 @@ async function generate() {
 
 function pollProgress() {
   if (pollTimer) clearInterval(pollTimer);
+  let pollAttempts = 0;
+  const maxAttempts = 300; // 300 * 2s = 10 min timeout
   pollTimer = setInterval(async () => {
+    pollAttempts++;
+    if (pollAttempts > maxAttempts) {
+      clearInterval(pollTimer);
+      document.getElementById('progressText').textContent = '⏰ 生成超时，请重试';
+      document.getElementById('generateBtn').disabled = false;
+      document.getElementById('generateBtn').textContent = '生成语音';
+      return;
+    }
     try {
       const resp = await apiFetch(`/api/task/${taskId}`);
       const data = await resp.json();
@@ -1181,11 +1203,10 @@ async function startCompare() {
     });
     const data = await resp.json();
     if (data.error) { alert(data.error); return; }
-    // Poll both tasks
-    pollCompareTasks(data.task_a, data.task_b);
+    // Poll both tasks (await so button stays disabled during polling)
+    await pollCompareTasks(data.task_a, data.task_b);
   } catch(e) {
     alert('对比请求失败: ' + e.message);
-  } finally {
     document.getElementById('compareBtn').disabled = false;
   }
 }
@@ -1193,9 +1214,12 @@ async function startCompare() {
 async function pollCompareTasks(taskIdA, taskIdB) {
   const statusEl = document.getElementById('compareStatus');
   let doneA = false, doneB = false;
+  const maxAttempts = 150; // 150 * 2s = 5 min timeout
+  let attempts = 0;
 
-  while (!doneA || !doneB) {
+  while ((!doneA || !doneB) && attempts < maxAttempts) {
     await new Promise(r => setTimeout(r, 2000));
+    attempts++;
     if (!doneA) {
       try {
         const r = await apiFetch(`/api/task/${taskIdA}`);
@@ -1227,12 +1251,18 @@ async function pollCompareTasks(taskIdA, taskIdB) {
     const cnt = (doneA ? 1 : 0) + (doneB ? 1 : 0);
     statusEl.textContent = `合成中... ${cnt}/2 完成`;
   }
-  statusEl.textContent = '对比完成！点击播放试听';
+  if (attempts >= maxAttempts && (!doneA || !doneB)) {
+    statusEl.textContent = '⏰ 对比超时，请重试';
+  } else {
+    statusEl.textContent = '对比完成！点击播放试听';
+  }
+  document.getElementById('compareBtn').disabled = false;
 }
 
 // ─── Batch Synthesize ─────────────────
 let batchTaskIds = [];
 let batchPollTimer = null;
+let batchPollAttempts = 0;
 
 document.getElementById('batchText').addEventListener('input', function() {
   const lines = this.value.split('\n').filter(l => l.trim());
@@ -1262,19 +1292,19 @@ async function startBatch() {
     const data = await resp.json();
     if (data.error) { alert(data.error); return; }
     batchTaskIds = data.task_ids;
+    batchPollAttempts = 0;
     // Render items
     const el = document.getElementById('batchItems');
     el.innerHTML = batchTaskIds.map((id, i) =>
-      `<div class="batch-item" id="batch-${id}">
+      `<div class="batch-item" data-batch-id="${escAttr(id)}">
         <span class="batch-item-text">${escHtml(lines[i])}</span>
-        <span class="batch-item-status" id="batch-status-${id}">⏳</span>
+        <span class="batch-item-status" data-batch-id="${escAttr(id)}">⏳</span>
       </div>`
     ).join('');
     // Start polling
-    pollBatchTasks();
+    pollBatchTasks();  // async timer-based, button re-enabled when all done
   } catch(e) {
     alert('批量提交失败: ' + e.message);
-  } finally {
     document.getElementById('batchBtn').disabled = false;
   }
 }
@@ -1283,13 +1313,20 @@ async function pollBatchTasks() {
   let done = 0;
   const total = batchTaskIds.length;
 
+  batchPollAttempts++;
+  if (batchPollAttempts > 300) { // 300 * 2s = 10 min
+    document.getElementById('batchCount').textContent = '⏰ 批量超时';
+    document.getElementById('batchBtn').disabled = false;
+    return;
+  }
+
   for (const id of batchTaskIds) {
-    const statusEl = document.getElementById(`batch-status-${id}`);
+    const statusEl = document.querySelector(`.batch-item-status[data-batch-id="${CSS.escape(id)}"]`);
     if (!statusEl) continue;
     if (statusEl.dataset.done) { done++; continue; }
 
     try {
-      const r = await apiFetch(`/api/task/${id}`);
+      const r = await apiFetch(`/api/task/${encodeURIComponent(id)}`);
       const d = await r.json();
       if (d.status === 'done') {
         statusEl.textContent = '✅';
@@ -1313,6 +1350,7 @@ async function pollBatchTasks() {
     batchPollTimer = setTimeout(pollBatchTasks, 2000);
   } else {
     document.getElementById('batchCount').textContent = `全部完成 ${done}/${total}`;
+    document.getElementById('batchBtn').disabled = false;
   }
 }
 
@@ -1431,10 +1469,11 @@ async function batchDeleteHistory() {
 
 async function regenerateFromHistory(id) {
   try {
-    const resp = await apiFetch(`/api/history?page=1&per_page=100&q=`);
-    const data = await resp.json();
-    const item = (data.items || []).find(i => i.id === id);
-    if (!item) { alert('记录不存在'); return; }
+    const resp = await apiFetch(`/api/history/${encodeURIComponent(id)}`);
+    if (!resp.ok) { alert('记录不存在'); return; }
+    const item = await resp.json();
+    // Switch to synthesize panel and fill in
+    switchNav('synthesize');
     document.getElementById('textInput').value = item.text;
     document.getElementById('charCount').textContent = item.text.length + '字';
     // Set voice
@@ -1448,8 +1487,6 @@ async function regenerateFromHistory(id) {
     });
     if (item.instruct) document.getElementById('instructInput').value = item.instruct;
     if (item.speed) document.getElementById('speedSelect').value = item.speed;
-    // Scroll to top
-    window.scrollTo({top:0, behavior:'smooth'});
   } catch(e) { alert('加载失败: ' + e.message); }
 }
 
@@ -1643,6 +1680,7 @@ async function deleteCurrentPreset() {
 
 // ─── Navigation ───────────────────────
 let _currentPanel = 'synthesize';
+const _panelLoaded = new Set(['synthesize']);  // synthesize loads on showApp
 function switchNav(name) {
   // Deactivate old panel + nav item
   const oldPanel = document.getElementById('panel' + _currentPanel.charAt(0).toUpperCase() + _currentPanel.slice(1));
@@ -1660,13 +1698,19 @@ function switchNav(name) {
   if (navItem) navItem.classList.add('active');
   _currentPanel = name;
 
-  // Load data on first visit
-  if (name === 'history') loadHistory();
-  if (name === 'update') checkUpdate();
+  // Load data on first visit only
+  if (!_panelLoaded.has(name)) {
+    _panelLoaded.add(name);
+    if (name === 'history') loadHistory();
+    if (name === 'update') checkUpdate();
+    if (name === 'clone') loadVoiceList();
+    if (name === 'compare') loadCompareVoices();
+  }
+  // Always start refreshers for real-time panels
   if (name === 'status') startStatusRefresh();
   if (name === 'logs') startLogsRefresh();
-  if (name === 'clone') loadVoiceList();
-  if (name === 'compare') loadCompareVoices();
+  // History refresh on revisit (data may have changed)
+  if (name === 'history' && _panelLoaded.has(name)) loadHistory();
 }
 
 // Backward compat: toggleSection redirects to switchNav

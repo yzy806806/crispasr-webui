@@ -95,6 +95,9 @@ class TTSHandler(BaseHTTPRequestHandler):
         elif path.startswith("/api/task/"):
             self._get_task()
 
+        elif path.startswith("/api/history/") and path.count("/") == 3:
+            self._get_history_item()
+
         elif path == "/api/voices":
             self._list_voices()
 
@@ -156,11 +159,11 @@ class TTSHandler(BaseHTTPRequestHandler):
         path = self.path.split("?")[0]
         if path == "/api/history":
             self._delete_history()
+        elif path == "/api/history/batch":
+            self._batch_delete_history()
         elif path.startswith("/api/history/"):
             task_id = unquote(path.split("/")[-1])
             self._delete_history_item(task_id)
-        elif path == "/api/history/batch":
-            self._batch_delete_history()
         elif path.startswith("/api/presets/"):
             name = unquote(path.split("/")[-1])
             self._delete_preset(name)
@@ -666,6 +669,22 @@ class TTSHandler(BaseHTTPRequestHandler):
             "pages": (total + per_page - 1) // per_page,
         })
 
+    def _get_history_item(self):
+        """Get a single history item by ID."""
+        if not self._check_auth():
+            self._send_json(401, {"error": "未登录"}); return
+        task_id = unquote(self.path.split("/")[-1].split("?")[0])
+        conn = database.db_conn()
+        row = conn.execute(
+            "SELECT id,text,voice,instruct,speed,fmt,audio_file,duration,status,created_at FROM history WHERE id=?",
+            (task_id,),
+        ).fetchone()
+        conn.close()
+        if not row:
+            self._send_json(404, {"error": "记录不存在"})
+            return
+        self._send_json(200, dict(row))
+
     def _delete_history_item(self, task_id: str):
         if not self._check_auth():
             self._send_json(401, {"error": "未登录"}); return
@@ -729,52 +748,14 @@ class TTSHandler(BaseHTTPRequestHandler):
 
     # ─── Audio File Serving ──────────
     def _serve_audio(self):
-        authed = self._check_auth()
-        if not authed:
-            qs = parse_qs(urlparse(self.path).query)
-            token = qs.get("token", [""])[0]
-            if token and auth.jwt_decode(token):
-                authed = True
-        if not authed:
-            self.send_error(401)
-            return
-
-        filename = self.path.split("/")[-1].split("?")[0]
-        # Strict filename validation: no path separators, no dots prefix
-        if not filename or "/" in filename or "\\" in filename or filename.startswith("."):
-            self.send_error(400)
-            return
-        filepath = config.AUDIO_DIR / filename
-        # Resolve symlinks and verify it stays within AUDIO_DIR
-        try:
-            real_path = filepath.resolve(strict=True)
-            real_dir = config.AUDIO_DIR.resolve()
-            if not str(real_path).startswith(str(real_dir) + os.sep) and real_path != real_dir:
-                self.send_error(403)
-                return
-        except (FileNotFoundError, RuntimeError):
-            self.send_error(404)
-            return
-
-        if not real_path.exists():
-            self.send_error(404)
-            return
-
-        # M2: Stream audio instead of reading entire file into memory
-        file_size = real_path.stat().st_size
-        ext = filepath.suffix.lower()
-        ct = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg"}.get(ext, "application/octet-stream")
-        self.send_response(200)
-        self.send_header("Content-Type", ct)
-        self.send_header("Content-Length", file_size)
-        self.send_header("Cache-Control", "public, max-age=86400")
-        self.end_headers()
-        with open(real_path, "rb") as f:
-            while chunk := f.read(65536):
-                self.wfile.write(chunk)
+        self._serve_file(config.AUDIO_DIR)
 
     def _serve_upload(self):
         """Serve uploaded reference audio files (auth via header or ?token=)."""
+        self._serve_file(config.UPLOAD_DIR)
+
+    def _serve_file(self, base_dir: Path):
+        """Serve a file from base_dir with auth check, path traversal protection, and Range support."""
         authed = self._check_auth()
         if not authed:
             qs = parse_qs(urlparse(self.path).query)
@@ -783,26 +764,68 @@ class TTSHandler(BaseHTTPRequestHandler):
                 authed = True
         if not authed:
             self.send_error(401); return
+
         filename = unquote(self.path.split("/")[-1].split("?")[0])
+        # Strict filename validation: no path separators, no dots prefix
         if not filename or "/" in filename or "\\" in filename or filename.startswith("."):
             self.send_error(400); return
-        filepath = config.UPLOAD_DIR / filename
+        filepath = base_dir / filename
+        # Resolve symlinks and verify it stays within base_dir
         try:
             real_path = filepath.resolve(strict=True)
-            real_dir = config.UPLOAD_DIR.resolve()
+            real_dir = base_dir.resolve()
             if not str(real_path).startswith(str(real_dir) + os.sep) and real_path != real_dir:
                 self.send_error(403); return
         except (FileNotFoundError, RuntimeError):
             self.send_error(404); return
         if not real_path.exists():
             self.send_error(404); return
+
         file_size = real_path.stat().st_size
         ext = filepath.suffix.lower()
         ct = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".webm": "audio/webm"}.get(ext, "application/octet-stream")
+
+        # Range request support for audio seeking
+        range_header = self.headers.get("Range")
+        if range_header and range_header.startswith("bytes="):
+            try:
+                range_spec = range_header[6:]
+                if range_spec.startswith("-"):
+                    # suffix range: last N bytes
+                    suffix_len = int(range_spec[1:])
+                    start = max(0, file_size - suffix_len)
+                    end = file_size - 1
+                else:
+                    parts = range_spec.split("-")
+                    start = int(parts[0]) if parts[0] else 0
+                    end = int(parts[1]) if parts[1] else file_size - 1
+                start = max(0, min(start, file_size - 1))
+                end = max(start, min(end, file_size - 1))
+                length = end - start + 1
+                self.send_response(206)
+                self.send_header("Content-Type", ct)
+                self.send_header("Content-Length", str(length))
+                self.send_header("Content-Range", f"bytes {start}-{end}/{file_size}")
+                self.send_header("Cache-Control", "public, max-age=86400")
+                self.send_header("Accept-Ranges", "bytes")
+                self.end_headers()
+                with open(real_path, "rb") as f:
+                    f.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = f.read(min(65536, remaining))
+                        if not chunk: break
+                        self.wfile.write(chunk)
+                        remaining -= len(chunk)
+                return
+            except (ValueError, OSError):
+                pass  # Fall through to full response
+
         self.send_response(200)
         self.send_header("Content-Type", ct)
-        self.send_header("Content-Length", file_size)
+        self.send_header("Content-Length", str(file_size))
         self.send_header("Cache-Control", "public, max-age=86400")
+        self.send_header("Accept-Ranges", "bytes")
         self.end_headers()
         with open(real_path, "rb") as f:
             while chunk := f.read(65536):
