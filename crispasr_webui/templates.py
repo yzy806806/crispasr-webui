@@ -93,16 +93,74 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 /* History */
 .history-section{display:none}
 .history-section.show{display:block}
-.history-item{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--card)}
+.history-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
+.history-search{flex:1;min-width:180px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:13px}
+.history-search:focus{outline:none;border-color:var(--accent)}
+.history-checkall{margin-right:4px;cursor:pointer}
+.history-item{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--card);gap:8px}
 .history-item:hover{border-color:var(--accent)}
-.history-text{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:12px;font-size:13px}
+.history-check{flex-shrink:0;cursor:pointer}
+.history-body{flex:1;overflow:hidden;display:flex;flex-direction:column;gap:2px}
+.history-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;cursor:pointer}
+.history-text:hover{color:var(--accent)}
 .history-meta{font-size:11px;color:var(--muted);white-space:nowrap}
-.history-actions{display:flex;gap:6px}
-.history-actions button{padding:4px 10px;font-size:12px;border-radius:4px}
+.history-actions{display:flex;gap:4px;flex-shrink:0}
+.history-actions button{padding:4px 8px;font-size:11px;border-radius:4px}
+.history-footer{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;color:var(--muted)}
+.history-footer button{padding:4px 10px;font-size:12px;border-radius:4px}
 
 /* Clone */
 .clone-section{display:none}
+
+/* Status */
+.status-section{display:none}
+.status-section.show{display:block}
+.status-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.status-card{padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--card)}
+.status-card h4{margin:0 0 8px;font-size:13px;color:var(--muted);font-weight:normal}
+.status-value{font-size:22px;font-weight:700;color:var(--fg)}
+.status-detail{font-size:11px;color:var(--muted);margin-top:4px}
+.status-bar{height:4px;background:var(--border);border-radius:2px;margin-top:6px;overflow:hidden}
+.status-bar-fill{height:100%;border-radius:2px;transition:width .5s}
+.status-on{color:#22c55e}
+.status-off{color:#ef4444}
+
+/* Logs */
+.logs-section{display:none}
+.logs-section.show{display:block}
+.logs-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.logs-search{flex:1;min-width:180px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:13px}
+.logs-search:focus{outline:none;border-color:var(--accent)}
+.logs-terminal{background:#0d1117;color:#c9d1d9;font-family:'Courier New',monospace;font-size:12px;line-height:1.5;padding:12px;border-radius:8px;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
+.logs-terminal::-webkit-scrollbar{width:6px}
+.logs-terminal::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
 .clone-section.show{display:block}
+.voice-item{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;background:var(--card)}
+.voice-item:hover{border-color:var(--accent)}
+.voice-name{font-size:13px;font-weight:500}
+.voice-meta{font-size:11px;color:var(--muted)}
+.voice-item-actions{display:flex;gap:4px}
+.voice-item-actions button{padding:2px 8px;font-size:11px;border-radius:4px}
+
+/* Compare */
+.compare-section{display:none}
+.compare-section.show{display:block}
+.compare-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
+.compare-col{text-align:center}
+.compare-col h4{margin:0 0 6px;font-size:13px}
+.compare-col audio{width:100%;margin-top:4px}
+.compare-status{font-size:12px;color:var(--muted);text-align:center;padding:12px}
+
+/* Batch */
+.batch-section{display:none}
+.batch-section.show{display:block}
+.batch-item{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)}
+.batch-item:last-child{border-bottom:none}
+.batch-item-text{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.batch-item-status{font-size:11px;min-width:60px;text-align:center}
+.batch-progress{margin-top:8px}
+.batch-progress-bar{height:4px;background:var(--border);border-radius:2px;overflow:hidden}
+.batch-progress-fill{height:100%;background:var(--accent);transition:width .3s}
 .upload-zone{border:2px dashed var(--border);border-radius:8px;padding:24px;text-align:center;cursor:pointer;transition:.2s}
 .upload-zone:hover{border-color:var(--accent)}
 .upload-zone.has-file{border-color:var(--success);border-style:solid}
@@ -166,6 +224,10 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
         <button class="btn-sm" onclick="toggleSection('model')">模型</button>
         <button class="btn-sm" onclick="toggleSection('history')">历史</button>
         <button class="btn-sm" onclick="toggleSection('clone')">语音克隆</button>
+        <button class="btn-sm" onclick="toggleSection('compare')">对比</button>
+        <button class="btn-sm" onclick="toggleSection('batch')">批量</button>
+        <button class="btn-sm" onclick="toggleSection('status')">状态</button>
+        <button class="btn-sm" onclick="toggleSection('logs')">日志</button>
         <button class="btn-sm" onclick="toggleSection('update')">更新</button>
         <button class="btn-sm" onclick="doLogout()">退出</button>
       </div>
@@ -186,12 +248,71 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
     <!-- Voice Clone -->
     <div class="clone-section" id="cloneSection">
       <div class="card">
-        <label>语音克隆 · 上传参考音频</label>
+        <label>语音克隆 · 参考音频管理</label>
+        <div id="voiceList" style="margin-bottom:12px"></div>
         <div class="upload-zone" id="uploadZone" onclick="document.getElementById('refAudio').click()">
           <div id="uploadText">📎 点击或拖拽上传参考音频（WAV/MP3，10-15秒）</div>
         </div>
         <input type="file" id="refAudio" accept="audio/*" style="display:none" onchange="uploadRefAudio()">
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+          <button class="btn-sm" onclick="startRecording()" id="recordBtn">🎤 录制</button>
+          <button class="btn-sm" onclick="stopRecording()" id="stopRecordBtn" style="display:none">⏹ 停止</button>
+          <span id="recordStatus" style="font-size:12px;color:var(--muted)"></span>
+        </div>
         <div class="hint">上传干净的人声录音，用于克隆音色。需配合支持克隆的模型使用。</div>
+      </div>
+    </div>
+
+    <!-- Compare -->
+    <div class="compare-section" id="compareSection">
+      <div class="card">
+        <label>克隆效果 A/B 对比</label>
+        <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap;align-items:center">
+          <div style="flex:1;min-width:120px">
+            <label style="font-size:12px">音色 A</label>
+            <select id="compareVoiceA" style="width:100%"></select>
+          </div>
+          <div style="flex:1;min-width:120px">
+            <label style="font-size:12px">音色 B</label>
+            <select id="compareVoiceB" style="width:100%"></select>
+          </div>
+        </div>
+        <div style="margin:8px 0">
+          <textarea id="compareText" rows="2" placeholder="输入对比文本（简短即可，如'你好，今天天气真不错'）" style="width:100%;resize:vertical"></textarea>
+        </div>
+        <button class="btn" onclick="startCompare()" id="compareBtn">开始对比</button>
+        <div id="compareResult" style="display:none;margin-top:12px">
+          <div class="compare-row">
+            <div class="compare-col">
+              <h4>🔊 A: <span id="compareNameA"></span></h4>
+              <audio id="compareAudioA" controls></audio>
+            </div>
+            <div class="compare-col">
+              <h4>🔊 B: <span id="compareNameB"></span></h4>
+              <audio id="compareAudioB" controls></audio>
+            </div>
+          </div>
+          <div class="compare-status" id="compareStatus"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Batch -->
+    <div class="batch-section" id="batchSection">
+      <div class="card">
+        <label>批量合成</label>
+        <div class="hint" style="margin-bottom:8px">每行一段文本，点击提交自动逐条合成。最多20条。</div>
+        <textarea id="batchText" rows="8" placeholder="第一段文字&#10;第二段文字&#10;第三段文字&#10;..." style="width:100%;resize:vertical;font-size:13px"></textarea>
+        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+          <button class="btn" onclick="startBatch()" id="batchBtn">提交批量</button>
+          <span id="batchCount" style="font-size:12px;color:var(--muted)"></span>
+        </div>
+        <div id="batchProgress" style="display:none;margin-top:12px">
+          <div class="batch-progress">
+            <div class="batch-progress-bar"><div class="batch-progress-fill" id="batchFill" style="width:0%"></div></div>
+          </div>
+          <div id="batchItems"></div>
+        </div>
       </div>
     </div>
 
@@ -241,6 +362,18 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 
     <!-- Parameters -->
     <div class="card">
+      <div class="row" style="margin-bottom:10px">
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <div style="flex:1;min-width:150px">
+            <label>预设</label>
+            <select id="presetSelect" onchange="loadPreset()" style="width:100%">
+              <option value="">— 选择预设 —</option>
+            </select>
+          </div>
+          <button class="btn-sm" onclick="saveCurrentPreset()">保存预设</button>
+          <button class="btn-sm" onclick="deleteCurrentPreset()">删除</button>
+        </div>
+      </div>
       <div class="row">
         <div>
           <label>音色 <span style="color:var(--muted);font-weight:400">(全局)</span></label>
@@ -304,11 +437,68 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
     <!-- History -->
     <div class="history-section" id="historySection">
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <label style="margin:0">生成历史</label>
-          <button class="btn-sm" onclick="clearHistory()">清空</button>
+        <div class="history-toolbar">
+          <input type="text" class="history-search" id="historySearch" placeholder="搜索历史记录..." oninput="debounceSearchHistory()">
+          <label class="history-checkall"><input type="checkbox" id="historyCheckAll" onchange="toggleCheckAll(this.checked)"> 全选</label>
+          <button class="btn-sm" onclick="batchDeleteHistory()" id="batchDeleteBtn" disabled>删除选中</button>
+          <button class="btn-sm" onclick="clearHistory()">清空全部</button>
         </div>
         <div id="historyList"></div>
+        <div class="history-footer">
+          <span id="historyCount"></span>
+          <div>
+            <button class="btn-sm" id="historyPrev" onclick="historyPrevPage()" disabled>上一页</button>
+            <span id="historyPageInfo"></span>
+            <button class="btn-sm" id="historyNext" onclick="historyNextPage()" disabled>下一页</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Status -->
+    <div class="status-section" id="statusSection">
+      <div class="card">
+        <div class="status-grid" id="statusGrid">
+          <div class="status-card">
+            <h4>CrispASR</h4>
+            <div class="status-value" id="statusCrispasr">—</div>
+            <div class="status-detail" id="statusCrispasrDetail"></div>
+          </div>
+          <div class="status-card">
+            <h4>任务队列</h4>
+            <div class="status-value" id="statusQueue">0</div>
+            <div class="status-detail" id="statusQueueDetail"></div>
+          </div>
+          <div class="status-card">
+            <h4>CPU</h4>
+            <div class="status-value" id="statusCpu">—</div>
+            <div class="status-bar"><div class="status-bar-fill" id="statusCpuBar" style="width:0;background:var(--accent)"></div></div>
+          </div>
+          <div class="status-card">
+            <h4>内存</h4>
+            <div class="status-value" id="statusMem">—</div>
+            <div class="status-bar"><div class="status-bar-fill" id="statusMemBar" style="width:0;background:#f59e0b"></div></div>
+            <div class="status-detail" id="statusMemDetail"></div>
+          </div>
+          <div class="status-card" style="grid-column:1/-1">
+            <h4>磁盘</h4>
+            <div class="status-value" id="statusDisk">—</div>
+            <div class="status-bar"><div class="status-bar-fill" id="statusDiskBar" style="width:0;background:#22c55e"></div></div>
+            <div class="status-detail" id="statusDiskDetail"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Logs -->
+    <div class="logs-section" id="logsSection">
+      <div class="card">
+        <div class="logs-toolbar">
+          <input type="text" class="logs-search" id="logsSearch" placeholder="过滤日志..." oninput="debounceFilterLogs()">
+          <button class="btn-sm" onclick="loadLogs()">刷新</button>
+          <button class="btn-sm" onclick="toggleLogAutoRefresh()" id="logsAutoBtn">自动刷新: 关</button>
+        </div>
+        <div class="logs-terminal" id="logsTerminal">点击"日志"标签加载...</div>
       </div>
     </div>
   </div>
@@ -519,6 +709,8 @@ async function init() {
   };
   // Check for resumable tasks
   checkResumable();
+  // Load presets
+  loadPresets();
 }
 
 // ─── Markup Hint ──────────────────────
@@ -808,14 +1000,315 @@ async function uploadRefAudio() {
     zone.classList.remove('has-file');
     document.getElementById('uploadText').textContent = '📎 点击或拖拽上传参考音频';
   }
+  loadVoiceList();
+}
+
+// ─── Voice Management ─────────────────
+async function loadVoiceList() {
+  try {
+    const resp = await apiFetch('/api/voices');
+    const voices = await resp.json();
+    const el = document.getElementById('voiceList');
+    if (!voices.length) { el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:4px 0">暂无参考音频</div>'; return; }
+    el.innerHTML = voices.map(v => `
+      <div class="voice-item">
+        <div>
+          <span class="voice-name">${escHtml(v.name)}</span>
+          <span class="voice-meta">${v.duration ? v.duration+'s' : ''} · ${v.filename}</span>
+        </div>
+        <div class="voice-item-actions">
+          <button onclick="playVoice('${escAttr(v.filename)}')">▶</button>
+          <button onclick="selectVoice('${escAttr(v.name)}')">选</button>
+          <button onclick="deleteVoice('${escAttr(v.name)}')">✕</button>
+        </div>
+      </div>
+    `).join('');
+  } catch(e) { console.error(e); }
+}
+
+function playVoice(filename) {
+  const token = getToken();
+  const a = new Audio('/uploads/' + encodeURIComponent(filename) + '?token=' + token);
+  a.play().catch(e => alert('播放失败: ' + e.message));
+}
+
+function selectVoice(name) {
+  selectedVoice = name;
+  const grid = document.getElementById('voiceGrid');
+  grid.querySelectorAll('.voice-btn').forEach(b => {
+    b.classList.remove('active');
+    if (b.textContent.replace('🎤 ','') === name) b.classList.add('active');
+  });
+}
+
+async function deleteVoice(name) {
+  if (!confirm(`确定删除参考音频 "${name}"？`)) return;
+  try {
+    await apiFetch(`/api/voices/${encodeURIComponent(name)}`, {method:'DELETE'});
+    // Remove from voice grid
+    const grid = document.getElementById('voiceGrid');
+    grid.querySelectorAll('.voice-btn').forEach(b => {
+      if (b.textContent.replace('🎤 ','') === name) b.remove();
+    });
+    if (selectedVoice === name) selectedVoice = 'serena';
+    loadVoiceList();
+  } catch(e) { alert('删除失败: ' + e.message); }
+}
+
+// ─── Microphone Recording ──────────────
+let mediaRecorder = null;
+let recordedChunks = [];
+
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    mediaRecorder = new MediaRecorder(stream);
+    recordedChunks = [];
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach(t => t.stop());
+      const blob = new Blob(recordedChunks, {type: 'audio/webm'});
+      const form = new FormData();
+      const ts = new Date().toISOString().slice(0,19).replace(/[:-]/g,'');
+      form.append('audio', blob, `rec_${ts}.webm`);
+      form.append('name', `rec_${ts}`);
+      try {
+        const token = getToken();
+        const resp = await fetch('/api/voices', {method:'POST', headers:{'Authorization':'Bearer '+token}, body:form});
+        const data = await resp.json();
+        if (data.name) {
+          uploadedVoice = data.name;
+          selectedVoice = data.name;
+          loadVoiceList();
+        }
+      } catch(e) { alert('录制上传失败: ' + e.message); }
+      document.getElementById('recordBtn').style.display = '';
+      document.getElementById('stopRecordBtn').style.display = 'none';
+      document.getElementById('recordStatus').textContent = '';
+    };
+    mediaRecorder.start();
+    document.getElementById('recordBtn').style.display = 'none';
+    document.getElementById('stopRecordBtn').style.display = '';
+    document.getElementById('recordStatus').textContent = '🔴 录音中...';
+  } catch(e) { alert('无法访问麦克风: ' + e.message); }
+}
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state === 'recording') mediaRecorder.stop();
+}
+
+// ─── Voice Compare ────────────────────
+async function loadCompareVoices() {
+  try {
+    const resp = await apiFetch('/api/voices');
+    const voices = await resp.json();
+    const opts = voices.map(v => `<option value="${escAttr(v.name)}">${escHtml(v.name)}</option>`).join('');
+    const builtIn = '<option value="serena">serena</option><option value="ethan">ethan</option><option value="chelsie">chelsie</option>';
+    document.getElementById('compareVoiceA').innerHTML = builtIn + opts;
+    document.getElementById('compareVoiceB').innerHTML = builtIn + opts;
+  } catch(e) { console.error(e); }
+}
+
+async function startCompare() {
+  const voiceA = document.getElementById('compareVoiceA').value;
+  const voiceB = document.getElementById('compareVoiceB').value;
+  const text = document.getElementById('compareText').value.trim();
+  if (!text) { alert('请输入对比文本'); return; }
+  if (!voiceA || !voiceB) { alert('请选择两个音色'); return; }
+
+  document.getElementById('compareBtn').disabled = true;
+  document.getElementById('compareResult').style.display = '';
+  document.getElementById('compareNameA').textContent = voiceA;
+  document.getElementById('compareNameB').textContent = voiceB;
+  document.getElementById('compareAudioA').src = '';
+  document.getElementById('compareAudioB').src = '';
+  document.getElementById('compareStatus').textContent = '正在合成...';
+
+  try {
+    const resp = await apiFetch('/api/compare', {
+      method: 'POST',
+      body: JSON.stringify({
+        voice_a: voiceA, voice_b: voiceB, text: text,
+        speed: parseFloat(document.getElementById('speedSelect').value),
+        fmt: document.getElementById('formatSelect').value,
+        instruct: document.getElementById('instructInput').value.trim(),
+      }),
+    });
+    const data = await resp.json();
+    if (data.error) { alert(data.error); return; }
+    // Poll both tasks
+    pollCompareTasks(data.task_a, data.task_b);
+  } catch(e) {
+    alert('对比请求失败: ' + e.message);
+  } finally {
+    document.getElementById('compareBtn').disabled = false;
+  }
+}
+
+async function pollCompareTasks(taskIdA, taskIdB) {
+  const statusEl = document.getElementById('compareStatus');
+  let doneA = false, doneB = false;
+
+  while (!doneA || !doneB) {
+    await new Promise(r => setTimeout(r, 2000));
+    if (!doneA) {
+      try {
+        const r = await apiFetch(`/api/task/${taskIdA}`);
+        const d = await r.json();
+        if (d.status === 'completed' && d.audio_file) {
+          doneA = true;
+          document.getElementById('compareAudioA').src = '/api/audio/' + d.audio_file + '?token=' + getToken();
+        } else if (d.status === 'failed') {
+          doneA = true;
+          statusEl.textContent = 'A 合成失败: ' + (d.error || '未知错误');
+        }
+      } catch(e) {}
+    }
+    if (!doneB) {
+      try {
+        const r = await apiFetch(`/api/task/${taskIdB}`);
+        const d = await r.json();
+        if (d.status === 'completed' && d.audio_file) {
+          doneB = true;
+          document.getElementById('compareAudioB').src = '/api/audio/' + d.audio_file + '?token=' + getToken();
+        } else if (d.status === 'failed') {
+          doneB = true;
+          statusEl.textContent = 'B 合成失败: ' + (d.error || '未知错误');
+        }
+      } catch(e) {}
+    }
+    const cnt = (doneA ? 1 : 0) + (doneB ? 1 : 0);
+    statusEl.textContent = `合成中... ${cnt}/2 完成`;
+  }
+  statusEl.textContent = '对比完成！点击播放试听';
+}
+
+// ─── Batch Synthesize ─────────────────
+let batchTaskIds = [];
+let batchPollTimer = null;
+
+document.getElementById('batchText').addEventListener('input', function() {
+  const lines = this.value.split('\n').filter(l => l.trim());
+  document.getElementById('batchCount').textContent = lines.length ? `${lines.length} 条` : '';
+});
+
+async function startBatch() {
+  const text = document.getElementById('batchText').value;
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+  if (!lines.length) { alert('请输入至少一段文本'); return; }
+  if (lines.length > 20) { alert('最多20条'); return; }
+
+  document.getElementById('batchBtn').disabled = true;
+  document.getElementById('batchProgress').style.display = '';
+
+  try {
+    const resp = await apiFetch('/api/batch', {
+      method: 'POST',
+      body: JSON.stringify({
+        texts: lines,
+        voice: selectedVoice,
+        speed: parseFloat(document.getElementById('speedSelect').value),
+        fmt: document.getElementById('formatSelect').value,
+        instruct: document.getElementById('instructInput').value.trim(),
+      }),
+    });
+    const data = await resp.json();
+    if (data.error) { alert(data.error); return; }
+    batchTaskIds = data.task_ids;
+    // Render items
+    const el = document.getElementById('batchItems');
+    el.innerHTML = batchTaskIds.map((id, i) =>
+      `<div class="batch-item" id="batch-${id}">
+        <span class="batch-item-text">${escHtml(lines[i])}</span>
+        <span class="batch-item-status" id="batch-status-${id}">⏳</span>
+      </div>`
+    ).join('');
+    // Start polling
+    pollBatchTasks();
+  } catch(e) {
+    alert('批量提交失败: ' + e.message);
+  } finally {
+    document.getElementById('batchBtn').disabled = false;
+  }
+}
+
+async function pollBatchTasks() {
+  let done = 0;
+  const total = batchTaskIds.length;
+
+  for (const id of batchTaskIds) {
+    const statusEl = document.getElementById(`batch-status-${id}`);
+    if (!statusEl) continue;
+    if (statusEl.dataset.done) { done++; continue; }
+
+    try {
+      const r = await apiFetch(`/api/task/${id}`);
+      const d = await r.json();
+      if (d.status === 'completed') {
+        statusEl.textContent = '✅';
+        statusEl.dataset.done = '1';
+        done++;
+      } else if (d.status === 'failed') {
+        statusEl.textContent = '❌';
+        statusEl.dataset.done = '1';
+        done++;
+      } else if (d.status === 'processing') {
+        statusEl.textContent = '🔄';
+      } else {
+        statusEl.textContent = '⏳';
+      }
+    } catch(e) {}
+  }
+
+  document.getElementById('batchFill').style.width = `${(done/total)*100}%`;
+
+  if (done < total) {
+    batchPollTimer = setTimeout(pollBatchTasks, 2000);
+  } else {
+    document.getElementById('batchCount').textContent = `全部完成 ${done}/${total}`;
+  }
 }
 
 // ─── History ──────────────────────────
+let historyPage = 1;
+let historyPages = 1;
+let historySearchQ = '';
+let historySearchTimer = null;
+let historyChecked = new Set();
+
+function debounceSearchHistory() {
+  clearTimeout(historySearchTimer);
+  historySearchTimer = setTimeout(() => {
+    historySearchQ = document.getElementById('historySearch').value.trim();
+    historyPage = 1;
+    loadHistory();
+  }, 300);
+}
+
+function historyPrevPage() {
+  if (historyPage > 1) { historyPage--; loadHistory(); }
+}
+
+function historyNextPage() {
+  if (historyPage < historyPages) { historyPage++; loadHistory(); }
+}
+
 async function loadHistory() {
   try {
-    const resp = await apiFetch('/api/history');
-    const items = await resp.json();
+    const q = encodeURIComponent(historySearchQ);
+    const resp = await apiFetch(`/api/history?page=${historyPage}&per_page=20&q=${q}`);
+    const data = await resp.json();
+    const items = data.items || [];
+    historyPages = data.pages || 1;
+    const total = data.total || 0;
     const list = document.getElementById('historyList');
+
+    // Update footer
+    document.getElementById('historyCount').textContent = `共 ${total} 条`;
+    document.getElementById('historyPageInfo').textContent = `${data.page}/${historyPages}`;
+    document.getElementById('historyPrev').disabled = data.page <= 1;
+    document.getElementById('historyNext').disabled = data.page >= historyPages;
+
     if (!items.length) {
       list.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:16px">暂无记录</div>';
       return;
@@ -827,28 +1320,99 @@ async function loadHistory() {
       const time = new Date(item.created_at*1000).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
       const dur = item.duration ? item.duration.toFixed(1)+'s' : '';
       const statusIcon = item.status==='done'?'✅':item.status==='error'?'❌':'⏳';
-      const textDiv = document.createElement('div');
-      textDiv.className = 'history-text';
-      textDiv.title = item.text;
-      textDiv.textContent = statusIcon + ' ' + item.text.slice(0,60);
-      const metaDiv = document.createElement('div');
-      metaDiv.className = 'history-meta';
-      metaDiv.textContent = item.voice + ' · ' + dur + ' · ' + time;
-      const actionsDiv = document.createElement('div');
-      actionsDiv.className = 'history-actions';
-      if (item.audio_file) {
-        const playBtn = document.createElement('button');
-        playBtn.className = 'btn-sm';
-        playBtn.textContent = '播放';
-        playBtn.onclick = () => playHistory(item.audio_file);
-        actionsDiv.appendChild(playBtn);
-      }
-      div.appendChild(textDiv);
-      div.appendChild(metaDiv);
-      div.appendChild(actionsDiv);
+      const checked = historyChecked.has(item.id) ? 'checked' : '';
+
+      div.innerHTML = `
+        <input type="checkbox" class="history-check" data-id="${item.id}" ${checked} onchange="onHistoryCheck()">
+        <div class="history-body">
+          <div class="history-text" title="${escAttr(item.text)}" onclick="regenerateFromHistory('${item.id}')">${statusIcon} ${escHtml(item.text.slice(0,80))}</div>
+          <div class="history-meta">${item.voice} · ${dur} · ${time}</div>
+        </div>
+        <div class="history-actions">
+          ${item.audio_file ? `<button class="btn-sm" onclick="playHistory('${item.audio_file}')">▶</button>` : ''}
+          ${item.audio_file ? `<button class="btn-sm" onclick="downloadHistoryAudio('${item.audio_file}','${item.id}')">⬇</button>` : ''}
+          <button class="btn-sm" onclick="regenerateFromHistory('${item.id}')" title="重新生成">🔄</button>
+          <button class="btn-sm" onclick="deleteHistoryItem('${item.id}')" title="删除">🗑</button>
+        </div>
+      `;
       list.appendChild(div);
     });
+    updateCheckAllState();
   } catch(e) { console.error(e); }
+}
+
+function onHistoryCheck() {
+  const checks = document.querySelectorAll('.history-check');
+  historyChecked.clear();
+  checks.forEach(c => { if (c.checked) historyChecked.add(c.dataset.id); });
+  document.getElementById('batchDeleteBtn').disabled = historyChecked.size === 0;
+  updateCheckAllState();
+}
+
+function updateCheckAllState() {
+  const checks = document.querySelectorAll('.history-check');
+  const allChecked = checks.length > 0 && [...checks].every(c => c.checked);
+  document.getElementById('historyCheckAll').checked = allChecked;
+}
+
+function toggleCheckAll(checked) {
+  const checks = document.querySelectorAll('.history-check');
+  historyChecked.clear();
+  checks.forEach(c => {
+    c.checked = checked;
+    if (checked) historyChecked.add(c.dataset.id);
+  });
+  document.getElementById('batchDeleteBtn').disabled = !checked;
+}
+
+async function deleteHistoryItem(id) {
+  if (!confirm('确定删除此记录？')) return;
+  await apiFetch(`/api/history/${id}`, {method:'DELETE'});
+  historyChecked.delete(id);
+  loadHistory();
+}
+
+async function batchDeleteHistory() {
+  if (!confirm(`确定删除选中的 ${historyChecked.size} 条记录？`)) return;
+  await apiFetch('/api/history/batch', {
+    method:'POST',
+    body: JSON.stringify({ids: [...historyChecked]}),
+  });
+  historyChecked.clear();
+  loadHistory();
+}
+
+async function regenerateFromHistory(id) {
+  try {
+    const resp = await apiFetch(`/api/history?page=1&per_page=100&q=`);
+    const data = await resp.json();
+    const item = (data.items || []).find(i => i.id === id);
+    if (!item) { alert('记录不存在'); return; }
+    document.getElementById('textInput').value = item.text;
+    document.getElementById('charCount').textContent = item.text.length + '字';
+    // Set voice
+    const voiceBtns = document.querySelectorAll('.voice-btn');
+    voiceBtns.forEach(b => {
+      b.classList.remove('active');
+      if (b.textContent.replace('🎤 ','') === item.voice) {
+        b.classList.add('active');
+        selectedVoice = item.voice;
+      }
+    });
+    if (item.instruct) document.getElementById('instructInput').value = item.instruct;
+    if (item.speed) document.getElementById('speedSelect').value = item.speed;
+    // Scroll to top
+    window.scrollTo({top:0, behavior:'smooth'});
+  } catch(e) { alert('加载失败: ' + e.message); }
+}
+
+function downloadHistoryAudio(audioFile, id) {
+  const token = getToken();
+  const url = `/api/audio/${audioFile}?token=${encodeURIComponent(token)}`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tts_${id}.wav`;
+  a.click();
 }
 
 async function playHistory(audioFile) {
@@ -862,7 +1426,172 @@ async function playHistory(audioFile) {
 async function clearHistory() {
   if (!confirm('确定清空所有历史记录？')) return;
   await apiFetch('/api/history', {method:'DELETE'});
+  historyChecked.clear();
   loadHistory();
+}
+
+// ─── Status ───────────────────────────
+let statusTimer = null;
+
+async function loadStatus() {
+  try {
+    const resp = await apiFetch('/api/status');
+    const s = await resp.json();
+
+    // CrispASR
+    const el = document.getElementById('statusCrispasr');
+    el.textContent = s.crispasr.active ? '运行中' : '已停止';
+    el.className = 'status-value ' + (s.crispasr.active ? 'status-on' : 'status-off');
+    document.getElementById('statusCrispasrDetail').textContent = s.crispasr.pid ? `PID ${s.crispasr.pid}` : '';
+
+    // Queue
+    const qd = s.queue.depth;
+    document.getElementById('statusQueue').textContent = qd;
+    document.getElementById('statusQueueDetail').textContent = s.queue.active ? '处理中...' : '空闲';
+
+    // CPU
+    const cpuPct = s.cpu.percent;
+    document.getElementById('statusCpu').textContent = cpuPct + '%';
+    document.getElementById('statusCpuBar').style.width = cpuPct + '%';
+    document.getElementById('statusCpuBar').style.background = cpuPct > 80 ? '#ef4444' : cpuPct > 50 ? '#f59e0b' : 'var(--accent)';
+
+    // Memory
+    const memPct = s.memory.percent;
+    document.getElementById('statusMem').textContent = memPct + '%';
+    document.getElementById('statusMemBar').style.width = memPct + '%';
+    document.getElementById('statusMemBar').style.background = memPct > 85 ? '#ef4444' : '#f59e0b';
+    document.getElementById('statusMemDetail').textContent = `${s.memory.used_mb} / ${s.memory.total_mb} MB`;
+
+    // Disk
+    const dskPct = s.disk.disk_percent;
+    document.getElementById('statusDisk').textContent = `${s.disk.disk_used_gb} / ${s.disk.disk_total_gb} GB (${dskPct}%)`;
+    document.getElementById('statusDiskBar').style.width = dskPct + '%';
+    document.getElementById('statusDiskBar').style.background = dskPct > 90 ? '#ef4444' : '#22c55e';
+    document.getElementById('statusDiskDetail').textContent = `音频 ${s.disk.audio_files} 个, ${s.disk.audio_size_mb} MB | 剩余 ${s.disk.disk_free_gb} GB`;
+  } catch(e) { console.error('Status error:', e); }
+}
+
+function startStatusRefresh() {
+  loadStatus();
+  if (!statusTimer) statusTimer = setInterval(loadStatus, 5000);
+}
+
+function stopStatusRefresh() {
+  if (statusTimer) { clearInterval(statusTimer); statusTimer = null; }
+}
+
+// ─── Logs ─────────────────────────────
+let logsAutoRefresh = false;
+let logsTimer = null;
+let logsFilterTimer = null;
+let lastLogsRaw = '';
+
+async function loadLogs() {
+  try {
+    const q = document.getElementById('logsSearch').value.trim();
+    const resp = await apiFetch(`/api/logs?lines=200&q=${encodeURIComponent(q)}`);
+    const data = await resp.json();
+    const term = document.getElementById('logsTerminal');
+    lastLogsRaw = data.logs || '';
+    term.textContent = lastLogsRaw || '(无日志)';
+    term.scrollTop = term.scrollHeight;
+  } catch(e) { console.error('Logs error:', e); }
+}
+
+function debounceFilterLogs() {
+  clearTimeout(logsFilterTimer);
+  logsFilterTimer = setTimeout(loadLogs, 500);
+}
+
+function toggleLogAutoRefresh() {
+  logsAutoRefresh = !logsAutoRefresh;
+  document.getElementById('logsAutoBtn').textContent = '自动刷新: ' + (logsAutoRefresh ? '开' : '关');
+  if (logsAutoRefresh) {
+    loadLogs();
+    if (!logsTimer) logsTimer = setInterval(loadLogs, 3000);
+  } else {
+    if (logsTimer) { clearInterval(logsTimer); logsTimer = null; }
+  }
+}
+
+function startLogsRefresh() {
+  loadLogs();
+  if (logsAutoRefresh && !logsTimer) logsTimer = setInterval(loadLogs, 3000);
+}
+
+function stopLogsRefresh() {
+  if (logsTimer) { clearInterval(logsTimer); logsTimer = null; }
+}
+
+// ─── Presets ──────────────────────────
+async function loadPresets() {
+  try {
+    const resp = await apiFetch('/api/presets');
+    const presets = await resp.json();
+    const sel = document.getElementById('presetSelect');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">— 选择预设 —</option>';
+    presets.forEach(p => {
+      const opt = document.createElement('option');
+      opt.value = p.name;
+      opt.textContent = p.name + ' (' + p.voice + ')';
+      sel.appendChild(opt);
+    });
+    if (current) sel.value = current;
+  } catch(e) { console.error(e); }
+}
+
+async function loadPreset() {
+  const name = document.getElementById('presetSelect').value;
+  if (!name) return;
+  try {
+    const resp = await apiFetch('/api/presets');
+    const presets = await resp.json();
+    const p = presets.find(x => x.name === name);
+    if (!p) return;
+    // Apply voice
+    const voiceBtns = document.querySelectorAll('.voice-btn');
+    voiceBtns.forEach(b => {
+      b.classList.remove('active');
+      if (b.textContent.replace('🎤 ','') === p.voice) {
+        b.classList.add('active');
+        selectedVoice = p.voice;
+      }
+    });
+    if (p.instruct) document.getElementById('instructInput').value = p.instruct;
+    if (p.speed) document.getElementById('speedSelect').value = p.speed;
+    if (p.fmt) document.getElementById('formatSelect').value = p.fmt;
+  } catch(e) { alert('加载预设失败: ' + e.message); }
+}
+
+async function saveCurrentPreset() {
+  const name = prompt('输入预设名称:');
+  if (!name || !name.trim()) return;
+  try {
+    await apiFetch('/api/presets', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: name.trim(),
+        voice: selectedVoice,
+        instruct: document.getElementById('instructInput').value.trim(),
+        speed: parseFloat(document.getElementById('speedSelect').value),
+        fmt: document.getElementById('formatSelect').value,
+      }),
+    });
+    await loadPresets();
+    document.getElementById('presetSelect').value = name.trim();
+  } catch(e) { alert('保存失败: ' + e.message); }
+}
+
+async function deleteCurrentPreset() {
+  const name = document.getElementById('presetSelect').value;
+  if (!name) { alert('请先选择预设'); return; }
+  if (!confirm(`确定删除预设 "${name}"？`)) return;
+  try {
+    await apiFetch(`/api/presets/${encodeURIComponent(name)}`, {method:'DELETE'});
+    document.getElementById('presetSelect').value = '';
+    await loadPresets();
+  } catch(e) { alert('删除失败: ' + e.message); }
 }
 
 // ─── Section Toggle ───────────────────
@@ -871,6 +1600,12 @@ function toggleSection(name) {
   el.classList.toggle('show');
   if (name === 'history' && el.classList.contains('show')) loadHistory();
   if (name === 'update' && el.classList.contains('show')) checkUpdate();
+  if (name === 'status' && el.classList.contains('show')) startStatusRefresh();
+  if (name === 'status' && !el.classList.contains('show')) stopStatusRefresh();
+  if (name === 'logs' && el.classList.contains('show')) startLogsRefresh();
+  if (name === 'logs' && !el.classList.contains('show')) stopLogsRefresh();
+  if (name === 'clone' && el.classList.contains('show')) loadVoiceList();
+  if (name === 'compare' && el.classList.contains('show')) loadCompareVoices();
 }
 
 // ─── Boot ─────────────────────────────

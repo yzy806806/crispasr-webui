@@ -14,15 +14,17 @@ import uuid
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from socketserver import ThreadingMixIn
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 from . import auth
 from . import config
 from . import crispasr_mgmt
 from . import database
+from . import status
 from . import task_queue
 from . import templates
 from . import text_split
+from . import audio_utils
 
 
 # ─── HTTP Handler ───────────────────────────────────────
@@ -84,6 +86,9 @@ class TTSHandler(BaseHTTPRequestHandler):
         elif path.startswith("/api/audio/"):
             self._serve_audio()
 
+        elif path.startswith("/uploads/"):
+            self._serve_upload()
+
         elif path == "/api/history":
             self._get_history()
 
@@ -93,11 +98,24 @@ class TTSHandler(BaseHTTPRequestHandler):
         elif path == "/api/voices":
             self._list_voices()
 
+        elif path.startswith("/api/voices/"):
+            name = unquote(path.split("/")[-1])
+            self._delete_voice(name)
+
         elif path == "/api/crispasr/version":
             self._get_crispasr_version()
 
         elif path == "/api/crispasr/update-status":
             self._get_update_status()
+
+        elif path == "/api/status":
+            self._get_status()
+
+        elif path == "/api/logs":
+            self._get_logs()
+
+        elif path == "/api/presets":
+            self._list_presets()
 
         elif path == "/api/resumable":
             self._get_resumable()
@@ -125,14 +143,31 @@ class TTSHandler(BaseHTTPRequestHandler):
             self._do_crispasr_update()
         elif path == "/api/resume":
             self._do_resume()
+        elif path == "/api/history/batch":
+            self._batch_delete_history()
+        elif path == "/api/presets" and self.command == "POST":
+            self._save_preset()
+        elif path == "/api/compare":
+            self._compare_voices()
+        elif path == "/api/batch":
+            self._batch_synthesize()
         elif path.startswith("/v1/"):
             self._proxy_api()
         else:
             self.send_error(404)
 
     def do_DELETE(self):
-        if self.path == "/api/history":
+        path = self.path.split("?")[0]
+        if path == "/api/history":
             self._delete_history()
+        elif path.startswith("/api/history/"):
+            task_id = unquote(path.split("/")[-1])
+            self._delete_history_item(task_id)
+        elif path == "/api/history/batch":
+            self._batch_delete_history()
+        elif path.startswith("/api/presets/"):
+            name = unquote(path.split("/")[-1])
+            self._delete_preset(name)
         else:
             self.send_error(404)
 
@@ -429,16 +464,232 @@ class TTSHandler(BaseHTTPRequestHandler):
         t.start()
         self._send_json(200, {"message": message})
 
-    # ─── History ─────────────────────
-    def _get_history(self):
+    # ─── Server Status ────────────────
+    def _get_status(self):
+        if not self._check_auth():
+            self._send_json(401, {"error": "未登录"}); return
+        queue_depth = task_queue.queue_depth()
+        active_task = task_queue.has_active_task()
+        self._send_json(200, status.get_status(queue_depth, active_task))
+
+    # ─── Logs ─────────────────────────
+    def _get_logs(self):
+        if not self._check_auth():
+            self._send_json(401, {"error": "未登录"}); return
+        qs = parse_qs(urlparse(self.path).query)
+        lines = min(500, max(10, int(qs.get("lines", ["200"])[0])))
+        q = qs.get("q", [""])[0].strip()
+        try:
+            cmd = ["journalctl", "-u", "crispasr", "-n", str(lines), "--no-pager", "--output=short-iso"]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            output = result.stdout
+            if q:
+                output = "\n".join(line for line in output.splitlines() if q.lower() in line.lower())
+            self._send_json(200, {"logs": output, "lines": lines})
+        except Exception as e:
+            self._send_json(500, {"error": str(e)})
+
+    # ─── Presets ───────────────────────
+    def _list_presets(self):
         if not self._check_auth():
             self._send_json(401, {"error": "未登录"}); return
         conn = database.db_conn()
         rows = conn.execute(
-            "SELECT id,text,voice,instruct,speed,fmt,audio_file,duration,status,created_at FROM history ORDER BY created_at DESC LIMIT 100"
+            "SELECT key, value FROM settings WHERE key LIKE 'preset:%' ORDER BY key"
         ).fetchall()
         conn.close()
-        self._send_json(200, [dict(r) for r in rows])
+        presets = []
+        for row in rows:
+            name = row["key"].replace("preset:", "", 1)
+            try:
+                data = json.loads(row["value"])
+            except (json.JSONDecodeError, TypeError):
+                data = {}
+            presets.append({"name": name, **data})
+        self._send_json(200, presets)
+
+    def _save_preset(self):
+        if not self._check_auth():
+            self._send_json(401, {"error": "未登录"}); return
+        try:
+            data = json.loads(self._read_body())
+            name = data.get("name", "").strip()
+            if not name:
+                self._send_json(400, {"error": "预设名称不能为空"}); return
+            safe_name = re.sub(r'[^a-zA-Z0-9_\-\u4e00-\u9fff]', '_', name)[:64]
+            preset_data = {
+                "voice": data.get("voice", "serena"),
+                "instruct": data.get("instruct", ""),
+                "speed": data.get("speed", 1.0),
+                "fmt": data.get("fmt", "wav"),
+            }
+            conn = database.db_conn()
+            conn.execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                (f"preset:{safe_name}", json.dumps(preset_data, ensure_ascii=False)),
+            )
+            conn.commit()
+            conn.close()
+            self._send_json(200, {"name": safe_name, **preset_data})
+        except Exception as e:
+            self._send_json(500, {"error": str(e)})
+
+    def _delete_preset(self, name: str):
+        if not self._check_auth():
+            self._send_json(401, {"error": "未登录"}); return
+        conn = database.db_conn()
+        conn.execute("DELETE FROM settings WHERE key=?", (f"preset:{name}",))
+        conn.commit()
+        conn.close()
+        self._send_json(200, {"ok": True})
+
+    # ─── Voice Compare ────────────────
+    def _compare_voices(self):
+        """Submit two TTS tasks with different voices for A/B comparison."""
+        if not self._check_auth():
+            self._send_json(401, {"error": "未登录"}); return
+        try:
+            data = json.loads(self._read_body())
+            text = data.get("text", "").strip()
+            voice_a = data.get("voice_a", "serena")
+            voice_b = data.get("voice_b", "")
+            if not text:
+                self._send_json(400, {"error": "文本不能为空"}); return
+            if not voice_b:
+                self._send_json(400, {"error": "请选择两个音色"}); return
+            speed = data.get("speed", 1.0)
+            fmt = data.get("fmt", "wav")
+            instruct = data.get("instruct", "")
+            # Enqueue two tasks with same text but different voices
+            task_id_a = str(uuid.uuid4())
+            task_info_a = {
+                "text": text, "voice": voice_a, "speed": speed,
+                "fmt": fmt, "instruct": instruct,
+                "status": "queued", "created_at": time.time(),
+            }
+            task_queue.enqueue_task(task_id_a, task_info_a)
+
+            task_id_b = str(uuid.uuid4())
+            task_info_b = {
+                "text": text, "voice": voice_b, "speed": speed,
+                "fmt": fmt, "instruct": instruct,
+                "status": "queued", "created_at": time.time(),
+            }
+            task_queue.enqueue_task(task_id_b, task_info_b)
+
+            self._send_json(200, {"task_a": task_id_a, "task_b": task_id_b})
+        except Exception as e:
+            self._send_json(500, {"error": str(e)})
+
+    # ─── Batch Synthesize ─────────────
+    def _batch_synthesize(self):
+        """Submit multiple TTS tasks at once."""
+        if not self._check_auth():
+            self._send_json(401, {"error": "未登录"}); return
+        try:
+            data = json.loads(self._read_body())
+            texts = data.get("texts", [])
+            if not texts or not isinstance(texts, list):
+                self._send_json(400, {"error": "texts必须是非空数组"}); return
+            if len(texts) > 20:
+                self._send_json(400, {"error": "单次最多20条"}); return
+            voice = data.get("voice", "serena")
+            speed = data.get("speed", 1.0)
+            fmt = data.get("fmt", "wav")
+            instruct = data.get("instruct", "")
+            task_ids = []
+            for text in texts:
+                text = str(text).strip()
+                if not text:
+                    continue
+                task_id = str(uuid.uuid4())
+                task_info = {
+                    "text": text, "voice": voice, "speed": speed,
+                    "fmt": fmt, "instruct": instruct,
+                    "status": "queued", "created_at": time.time(),
+                }
+                task_queue.enqueue_task(task_id, task_info)
+                task_ids.append(task_id)
+            self._send_json(200, {"task_ids": task_ids, "count": len(task_ids)})
+        except Exception as e:
+            self._send_json(500, {"error": str(e)})
+
+    # ─── History ─────────────────────
+    def _get_history(self):
+        if not self._check_auth():
+            self._send_json(401, {"error": "未登录"}); return
+        qs = parse_qs(urlparse(self.path).query)
+        page = max(1, int(qs.get("page", ["1"])[0]))
+        per_page = min(100, max(1, int(qs.get("per_page", ["20"])[0])))
+        q = qs.get("q", [""])[0].strip()
+        offset = (page - 1) * per_page
+
+        conn = database.db_conn()
+        where = ""
+        params: list = []
+        if q:
+            where = "WHERE text LIKE ?"
+            params.append(f"%{q}%")
+
+        total = conn.execute(f"SELECT COUNT(*) FROM history {where}", params).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT id,text,voice,instruct,speed,fmt,audio_file,duration,status,created_at "
+            f"FROM history {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            params + [per_page, offset],
+        ).fetchall()
+        conn.close()
+        self._send_json(200, {
+            "items": [dict(r) for r in rows],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": (total + per_page - 1) // per_page,
+        })
+
+    def _delete_history_item(self, task_id: str):
+        if not self._check_auth():
+            self._send_json(401, {"error": "未登录"}); return
+        conn = database.db_conn()
+        row = conn.execute("SELECT audio_file FROM history WHERE id=?", (task_id,)).fetchone()
+        if not row:
+            conn.close()
+            self._send_json(404, {"error": "记录不存在"})
+            return
+        if row["audio_file"]:
+            f = config.AUDIO_DIR / row["audio_file"]
+            if f.exists():
+                try: f.unlink()
+                except: pass
+        conn.execute("DELETE FROM history WHERE id=?", (task_id,))
+        conn.commit()
+        conn.close()
+        self._send_json(200, {"ok": True})
+
+    def _batch_delete_history(self):
+        if not self._check_auth():
+            self._send_json(401, {"error": "未登录"}); return
+        try:
+            data = json.loads(self._read_body())
+            ids = data.get("ids", [])
+            if not ids:
+                self._send_json(400, {"error": "无指定ID"}); return
+            conn = database.db_conn()
+            placeholders = ",".join("?" * len(ids))
+            rows = conn.execute(
+                f"SELECT audio_file FROM history WHERE id IN ({placeholders})", ids
+            ).fetchall()
+            for row in rows:
+                if row["audio_file"]:
+                    f = config.AUDIO_DIR / row["audio_file"]
+                    if f.exists():
+                        try: f.unlink()
+                        except: pass
+            conn.execute(f"DELETE FROM history WHERE id IN ({placeholders})", ids)
+            conn.commit()
+            conn.close()
+            self._send_json(200, {"ok": True, "deleted": len(ids)})
+        except Exception as e:
+            self._send_json(500, {"error": str(e)})
 
     def _delete_history(self):
         if not self._check_auth():
@@ -493,6 +744,41 @@ class TTSHandler(BaseHTTPRequestHandler):
         file_size = real_path.stat().st_size
         ext = filepath.suffix.lower()
         ct = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg"}.get(ext, "application/octet-stream")
+        self.send_response(200)
+        self.send_header("Content-Type", ct)
+        self.send_header("Content-Length", file_size)
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.end_headers()
+        with open(real_path, "rb") as f:
+            while chunk := f.read(65536):
+                self.wfile.write(chunk)
+
+    def _serve_upload(self):
+        """Serve uploaded reference audio files (auth via header or ?token=)."""
+        authed = self._check_auth()
+        if not authed:
+            qs = parse_qs(urlparse(self.path).query)
+            token = qs.get("token", [""])[0]
+            if token and auth.jwt_decode(token):
+                authed = True
+        if not authed:
+            self.send_error(401); return
+        filename = unquote(self.path.split("/")[-1].split("?")[0])
+        if not filename or "/" in filename or "\\" in filename or filename.startswith("."):
+            self.send_error(400); return
+        filepath = config.UPLOAD_DIR / filename
+        try:
+            real_path = filepath.resolve(strict=True)
+            real_dir = config.UPLOAD_DIR.resolve()
+            if not str(real_path).startswith(str(real_dir) + os.sep) and real_path != real_dir:
+                self.send_error(403); return
+        except (FileNotFoundError, RuntimeError):
+            self.send_error(404); return
+        if not real_path.exists():
+            self.send_error(404); return
+        file_size = real_path.stat().st_size
+        ext = filepath.suffix.lower()
+        ct = {".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".webm": "audio/webm"}.get(ext, "application/octet-stream")
         self.send_response(200)
         self.send_header("Content-Type", ct)
         self.send_header("Content-Length", file_size)
@@ -570,7 +856,45 @@ class TTSHandler(BaseHTTPRequestHandler):
         conn = database.db_conn()
         rows = conn.execute("SELECT name, filename, created_at FROM voices ORDER BY created_at DESC").fetchall()
         conn.close()
-        self._send_json(200, [dict(r) for r in rows])
+        items = []
+        for row in rows:
+            item = dict(row)
+            # Add duration
+            fpath = config.UPLOAD_DIR / row["filename"]
+            if fpath.exists():
+                try:
+                    item["duration"] = round(audio_utils.wav_duration(str(fpath)), 1)
+                except Exception:
+                    item["duration"] = 0
+            else:
+                item["duration"] = 0
+            items.append(item)
+        self._send_json(200, items)
+
+    def _delete_voice(self, name: str):
+        if not self._check_auth():
+            self._send_json(401, {"error": "未登录"}); return
+        conn = database.db_conn()
+        row = conn.execute("SELECT filename FROM voices WHERE name=?", (name,)).fetchone()
+        if not row:
+            conn.close()
+            self._send_json(404, {"error": "参考音频不存在"})
+            return
+        filename = row["filename"]
+        # Delete from uploads
+        upload_path = config.UPLOAD_DIR / filename
+        if upload_path.exists():
+            try: upload_path.unlink()
+            except: pass
+        # Delete from CrispASR voices dir
+        crispasr_voice = config.CRISPASR_DIR / "voices" / filename
+        if crispasr_voice.exists():
+            try: crispasr_voice.unlink()
+            except: pass
+        conn.execute("DELETE FROM voices WHERE name=?", (name,))
+        conn.commit()
+        conn.close()
+        self._send_json(200, {"ok": True})
 
     # ─── API Proxy ───────────────────
     def _proxy_api(self):

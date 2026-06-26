@@ -66,6 +66,16 @@ def get_task(task_id: str) -> dict:
     with _tasks_lock:
         return dict(_tasks.get(task_id, {}))
 
+def queue_depth() -> int:
+    """Get current queue depth (thread-safe)."""
+    with _queue_lock:
+        return len(_task_queue)
+
+def has_active_task() -> bool:
+    """Check if a task is currently running (thread-safe)."""
+    with _queue_lock:
+        return _active_task_id is not None
+
 
 def cleanup_tasks() -> None:
     """Public wrapper for _cleanup_tasks."""
