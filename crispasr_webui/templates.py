@@ -8,7 +8,7 @@ HTML_PAGE = r"""
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CrispASR TTS</title>
 <style>
-:root{--bg:#0f1117;--card:#1a1d27;--border:#2a2d3a;--text:#e4e4e7;--muted:#71717a;--accent:#6366f1;--accent2:#818cf8;--success:#22c55e;--error:#ef4444;--warn:#f59e0b}
+:root{--bg:#0f1117;--card:#1a1d27;--border:#2a2d3a;--text:#e4e4e7;--muted:#71717a;--accent:#6366f1;--accent2:#818cf8;--success:#22c55e;--error:#ef4444;--warn:#f59e0b;--sidebar-w:200px}
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
 a{color:var(--accent2);text-decoration:none}
@@ -23,13 +23,26 @@ a{color:var(--accent2);text-decoration:none}
 .login-error{color:var(--error);font-size:13px;margin-bottom:12px;display:none}
 
 .app{display:none}
-.container{max-width:920px;margin:0 auto;padding:30px 20px}
-.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:28px}
-.header h1{font-size:24px}
-.header-right{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.btn-sm{padding:6px 14px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;transition:.2s;white-space:nowrap}
-.btn-sm:hover{border-color:var(--accent)}
-.btn-sm.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+
+/* ─── Sidebar Layout ─── */
+.app-layout{display:flex;min-height:100vh}
+.sidebar{width:var(--sidebar-w);background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;top:0;left:0;bottom:0;z-index:10;overflow-y:auto}
+.sidebar-brand{padding:20px 16px 16px;font-size:16px;font-weight:700;border-bottom:1px solid var(--border);white-space:nowrap}
+.sidebar-nav{flex:1;padding:8px 0}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;transition:.2s;color:var(--muted);font-size:14px;border-left:3px solid transparent;user-select:none}
+.nav-item:hover{color:var(--text);background:rgba(99,102,241,.05)}
+.nav-item.active{color:var(--accent2);background:rgba(99,102,241,.1);border-left-color:var(--accent)}
+.nav-item .nav-icon{font-size:16px;width:20px;text-align:center}
+.sidebar-footer{padding:12px 16px;border-top:1px solid var(--border)}
+.sidebar-footer .nav-item{padding:8px 0;border-left:none;font-size:13px;color:var(--muted)}
+.sidebar-footer .nav-item:hover{color:var(--error)}
+
+.main-content{margin-left:var(--sidebar-w);flex:1;padding:28px 32px;max-width:calc(100% - var(--sidebar-w))}
+.main-content h2{font-size:20px;font-weight:700;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+
+/* Panel visibility */
+.panel{display:none}
+.panel.active{display:block}
 
 .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px}
 label{display:block;font-weight:600;margin-bottom:6px;font-size:13px}
@@ -58,6 +71,9 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .btn-warn{background:var(--warn);color:#fff}
 .btn-warn:hover{opacity:.9}
 .btn-warn:disabled{opacity:.5;cursor:not-allowed}
+.btn-sm{padding:6px 14px;font-size:13px;border-radius:6px;border:1px solid var(--border);background:var(--card);color:var(--text);cursor:pointer;transition:.2s;white-space:nowrap}
+.btn-sm:hover{border-color:var(--accent)}
+.btn-sm.active{background:var(--accent);color:#fff;border-color:var(--accent)}
 
 /* Chunk preview with per-chunk controls */
 .chunk-preview{display:none;margin-top:12px}
@@ -91,8 +107,6 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .result-meta{font-size:12px;color:var(--muted);margin-top:4px}
 
 /* History */
-.history-section{display:none}
-.history-section.show{display:block}
 .history-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
 .history-search{flex:1;min-width:180px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:13px}
 .history-search:focus{outline:none;border-color:var(--accent)}
@@ -109,12 +123,7 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .history-footer{display:flex;justify-content:space-between;align-items:center;margin-top:10px;font-size:12px;color:var(--muted)}
 .history-footer button{padding:4px 10px;font-size:12px;border-radius:4px}
 
-/* Clone */
-.clone-section{display:none}
-
 /* Status */
-.status-section{display:none}
-.status-section.show{display:block}
 .status-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
 .status-card{padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--card)}
 .status-card h4{margin:0 0 8px;font-size:13px;color:var(--muted);font-weight:normal}
@@ -126,15 +135,14 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .status-off{color:#ef4444}
 
 /* Logs */
-.logs-section{display:none}
-.logs-section.show{display:block}
 .logs-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
 .logs-search{flex:1;min-width:180px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:13px}
 .logs-search:focus{outline:none;border-color:var(--accent)}
 .logs-terminal{background:#0d1117;color:#c9d1d9;font-family:'Courier New',monospace;font-size:12px;line-height:1.5;padding:12px;border-radius:8px;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
 .logs-terminal::-webkit-scrollbar{width:6px}
 .logs-terminal::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
-.clone-section.show{display:block}
+
+/* Clone / Voice management */
 .voice-item{display:flex;justify-content:space-between;align-items:center;padding:8px 12px;border:1px solid var(--border);border-radius:6px;margin-bottom:4px;background:var(--card)}
 .voice-item:hover{border-color:var(--accent)}
 .voice-name{font-size:13px;font-weight:500}
@@ -143,8 +151,6 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .voice-item-actions button{padding:2px 8px;font-size:11px;border-radius:4px}
 
 /* Compare */
-.compare-section{display:none}
-.compare-section.show{display:block}
 .compare-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:8px}
 .compare-col{text-align:center}
 .compare-col h4{margin:0 0 6px;font-size:13px}
@@ -152,8 +158,6 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .compare-status{font-size:12px;color:var(--muted);text-align:center;padding:12px}
 
 /* Batch */
-.batch-section{display:none}
-.batch-section.show{display:block}
 .batch-item{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)}
 .batch-item:last-child{border-bottom:none}
 .batch-item-text{flex:1;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -166,8 +170,6 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .upload-zone.has-file{border-color:var(--success);border-style:solid}
 
 /* Model section */
-.model-section{display:none}
-.model-section.show{display:block}
 .model-card{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--bg);cursor:pointer;transition:.2s}
 .model-card:hover{border-color:var(--accent)}
 .model-card.active{border-color:var(--success);background:rgba(34,197,94,.05)}
@@ -176,8 +178,6 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .model-desc{font-size:11px;color:var(--muted);margin-top:2px}
 
 /* Update section */
-.update-section{display:none}
-.update-section.show{display:block}
 .update-log{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:monospace;font-size:12px;max-height:200px;overflow-y:auto;white-space:pre-wrap;color:var(--muted);margin-top:8px}
 
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:6px}
@@ -188,9 +188,15 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .markup-hint.show{display:block}
 .markup-hint code{background:var(--bg);padding:2px 6px;border-radius:4px;font-size:11px}
 
-@media(max-width:600px){
-  .container{padding:16px 12px}
-  .header h1{font-size:20px}
+/* Mobile: sidebar collapses to bottom tab bar */
+@media(max-width:768px){
+  .app-layout{flex-direction:column}
+  .sidebar{position:fixed;bottom:0;top:auto;left:0;right:0;width:100%;height:auto;flex-direction:row;border-right:none;border-top:1px solid var(--border);overflow-x:auto;overflow-y:hidden}
+  .sidebar-brand,.sidebar-footer{display:none}
+  .sidebar-nav{display:flex;flex-direction:row;padding:0;width:100%}
+  .nav-item{flex-direction:column;gap:2px;padding:8px 12px;font-size:10px;border-left:none;border-bottom:2px solid transparent;justify-content:center;min-width:56px}
+  .nav-item.active{border-left:none;border-bottom-color:var(--accent)}
+  .main-content{margin-left:0;padding:16px 12px;padding-bottom:72px;max-width:100%}
   .row{flex-direction:column}
   .voice-grid{grid-template-columns:repeat(auto-fill,minmax(80px,1fr))}
   .chunk-controls{flex-direction:column;align-items:stretch}
@@ -217,290 +223,328 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 
 <!-- App -->
 <div class="app" id="appPage">
-  <div class="container">
-    <div class="header">
-      <h1>🎙️ CrispASR TTS</h1>
-      <div class="header-right">
-        <button class="btn-sm" onclick="toggleSection('model')">模型</button>
-        <button class="btn-sm" onclick="toggleSection('history')">历史</button>
-        <button class="btn-sm" onclick="toggleSection('clone')">语音克隆</button>
-        <button class="btn-sm" onclick="toggleSection('compare')">对比</button>
-        <button class="btn-sm" onclick="toggleSection('batch')">批量</button>
-        <button class="btn-sm" onclick="toggleSection('status')">状态</button>
-        <button class="btn-sm" onclick="toggleSection('logs')">日志</button>
-        <button class="btn-sm" onclick="toggleSection('update')">更新</button>
-        <button class="btn-sm" onclick="doLogout()">退出</button>
+  <div class="app-layout">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">🎙️ CrispASR TTS</div>
+      <nav class="sidebar-nav">
+        <div class="nav-item active" data-panel="synthesize" onclick="switchNav('synthesize')">
+          <span class="nav-icon">🎤</span> 合成
+        </div>
+        <div class="nav-item" data-panel="history" onclick="switchNav('history')">
+          <span class="nav-icon">📋</span> 历史
+        </div>
+        <div class="nav-item" data-panel="clone" onclick="switchNav('clone')">
+          <span class="nav-icon">🎭</span> 语音克隆
+        </div>
+        <div class="nav-item" data-panel="compare" onclick="switchNav('compare')">
+          <span class="nav-icon">⚖️</span> 对比
+        </div>
+        <div class="nav-item" data-panel="batch" onclick="switchNav('batch')">
+          <span class="nav-icon">📦</span> 批量
+        </div>
+        <div class="nav-item" data-panel="status" onclick="switchNav('status')">
+          <span class="nav-icon">📊</span> 状态
+        </div>
+        <div class="nav-item" data-panel="logs" onclick="switchNav('logs')">
+          <span class="nav-icon">📄</span> 日志
+        </div>
+        <div class="nav-item" data-panel="model" onclick="switchNav('model')">
+          <span class="nav-icon">🧠</span> 模型
+        </div>
+        <div class="nav-item" data-panel="update" onclick="switchNav('update')">
+          <span class="nav-icon">🔄</span> 更新
+        </div>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="nav-item" onclick="doLogout()">🚪 退出登录</div>
       </div>
-    </div>
+    </aside>
 
-    <!-- Model Selection -->
-    <div class="model-section" id="modelSection">
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <label style="margin:0">模型选择</label>
-          <span class="hint" id="currentModelName">当前: --</span>
-        </div>
-        <div id="modelList"></div>
-        <div class="hint" style="margin-top:8px">切换模型会重启CrispASR服务，约10-20秒不可用</div>
-      </div>
-    </div>
+    <!-- Main Content -->
+    <main class="main-content">
 
-    <!-- Voice Clone -->
-    <div class="clone-section" id="cloneSection">
-      <div class="card">
-        <label>语音克隆 · 参考音频管理</label>
-        <div id="voiceList" style="margin-bottom:12px"></div>
-        <div class="upload-zone" id="uploadZone" onclick="document.getElementById('refAudio').click()">
-          <div id="uploadText">📎 点击或拖拽上传参考音频（WAV/MP3，10-15秒）</div>
-        </div>
-        <input type="file" id="refAudio" accept="audio/*" style="display:none" onchange="uploadRefAudio()">
-        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-          <button class="btn-sm" onclick="startRecording()" id="recordBtn">🎤 录制</button>
-          <button class="btn-sm" onclick="stopRecording()" id="stopRecordBtn" style="display:none">⏹ 停止</button>
-          <span id="recordStatus" style="font-size:12px;color:var(--muted)"></span>
-        </div>
-        <div class="hint">上传干净的人声录音，用于克隆音色。需配合支持克隆的模型使用。</div>
-      </div>
-    </div>
+      <!-- Panel: Synthesize (default) -->
+      <div class="panel active" id="panelSynthesize">
+        <h2>🎤 语音合成</h2>
 
-    <!-- Compare -->
-    <div class="compare-section" id="compareSection">
-      <div class="card">
-        <label>克隆效果 A/B 对比</label>
-        <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap;align-items:center">
-          <div style="flex:1;min-width:120px">
-            <label style="font-size:12px">音色 A</label>
-            <select id="compareVoiceA" style="width:100%"></select>
-          </div>
-          <div style="flex:1;min-width:120px">
-            <label style="font-size:12px">音色 B</label>
-            <select id="compareVoiceB" style="width:100%"></select>
-          </div>
-        </div>
-        <div style="margin:8px 0">
-          <textarea id="compareText" rows="2" placeholder="输入对比文本（简短即可，如'你好，今天天气真不错'）" style="width:100%;resize:vertical"></textarea>
-        </div>
-        <button class="btn" onclick="startCompare()" id="compareBtn">开始对比</button>
-        <div id="compareResult" style="display:none;margin-top:12px">
-          <div class="compare-row">
-            <div class="compare-col">
-              <h4>🔊 A: <span id="compareNameA"></span></h4>
-              <audio id="compareAudioA" controls></audio>
-            </div>
-            <div class="compare-col">
-              <h4>🔊 B: <span id="compareNameB"></span></h4>
-              <audio id="compareAudioB" controls></audio>
+        <!-- Input -->
+        <div class="card">
+          <label>输入文本</label>
+          <textarea id="textInput" placeholder="输入要转换的文字，长文本会自动分句生成...&#10;&#10;内联标记语法: [音色名]{语气指令}文字&#10;示例: [vivian]{温柔}你好啊 [ryan]{平静}嗯，好久不见"></textarea>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+            <span class="hint" id="charCount">0字</span>
+            <div style="display:flex;gap:8px">
+              <button class="btn-sm" onclick="toggleMarkupHint()">标记语法</button>
+              <button class="btn-sm" onclick="previewChunks()">预览分句</button>
             </div>
           </div>
-          <div class="compare-status" id="compareStatus"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Batch -->
-    <div class="batch-section" id="batchSection">
-      <div class="card">
-        <label>批量合成</label>
-        <div class="hint" style="margin-bottom:8px">每行一段文本，点击提交自动逐条合成。最多20条。</div>
-        <textarea id="batchText" rows="8" placeholder="第一段文字&#10;第二段文字&#10;第三段文字&#10;..." style="width:100%;resize:vertical;font-size:13px"></textarea>
-        <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
-          <button class="btn" onclick="startBatch()" id="batchBtn">提交批量</button>
-          <span id="batchCount" style="font-size:12px;color:var(--muted)"></span>
-        </div>
-        <div id="batchProgress" style="display:none;margin-top:12px">
-          <div class="batch-progress">
-            <div class="batch-progress-bar"><div class="batch-progress-fill" id="batchFill" style="width:0%"></div></div>
+          <div class="markup-hint" id="markupHint">
+            在文本中使用内联标记控制每句的音色和语气：<br>
+            <code>[vivian]{温柔}你好啊</code> — 用vivian音色、温柔语气说"你好啊"<br>
+            <code>[ryan]{平静}嗯</code> — 用ryan音色、平静语气说"嗯"<br>
+            <code>{激动}太棒了</code> — 只改语气，音色继承全局<br>
+            <code>[aiden]好的</code> — 只改音色，语气继承全局<br>
+            标记优先级：内联标记 > 逐句配置 > 全局配置
           </div>
-          <div id="batchItems"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- Update -->
-    <div class="update-section" id="updateSection">
-      <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-          <label style="margin:0">CrispASR 更新</label>
-          <span id="versionInfo" class="hint">当前版本: 检测中...</span>
-        </div>
-        <div style="display:flex;gap:10px;align-items:center">
-          <button class="btn-secondary" onclick="checkUpdate()">检查更新</button>
-          <button class="btn-warn" id="updateBtn" onclick="doUpdate()" disabled>更新并编译</button>
-          <span id="updateStatus"></span>
-        </div>
-        <div class="update-log" id="updateLog" style="display:none"></div>
-      </div>
-    </div>
-
-    <!-- Input -->
-    <div class="card">
-      <label>输入文本</label>
-      <textarea id="textInput" placeholder="输入要转换的文字，长文本会自动分句生成...&#10;&#10;内联标记语法: [音色名]{语气指令}文字&#10;示例: [vivian]{温柔}你好啊 [ryan]{平静}嗯，好久不见"></textarea>
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
-        <span class="hint" id="charCount">0字</span>
-        <div style="display:flex;gap:8px">
-          <button class="btn-sm" onclick="toggleMarkupHint()">标记语法</button>
-          <button class="btn-sm" onclick="previewChunks()">预览分句</button>
-        </div>
-      </div>
-      <div class="markup-hint" id="markupHint">
-        在文本中使用内联标记控制每句的音色和语气：<br>
-        <code>[vivian]{温柔}你好啊</code> — 用vivian音色、温柔语气说"你好啊"<br>
-        <code>[ryan]{平静}嗯</code> — 用ryan音色、平静语气说"嗯"<br>
-        <code>{激动}太棒了</code> — 只改语气，音色继承全局<br>
-        <code>[aiden]好的</code> — 只改音色，语气继承全局<br>
-        标记优先级：内联标记 > 逐句配置 > 全局配置
-      </div>
-      <div class="chunk-preview" id="chunkPreview">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <span class="hint" id="chunkCount">0段</span>
-          <button class="btn-sm" onclick="expandAllChunks()">全部展开</button>
-        </div>
-        <div class="chunk-list" id="chunkList"></div>
-      </div>
-    </div>
-
-    <!-- Parameters -->
-    <div class="card">
-      <div class="row" style="margin-bottom:10px">
-        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-          <div style="flex:1;min-width:150px">
-            <label>预设</label>
-            <select id="presetSelect" onchange="loadPreset()" style="width:100%">
-              <option value="">— 选择预设 —</option>
-            </select>
+          <div class="chunk-preview" id="chunkPreview">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+              <span class="hint" id="chunkCount">0段</span>
+              <button class="btn-sm" onclick="expandAllChunks()">全部展开</button>
+            </div>
+            <div class="chunk-list" id="chunkList"></div>
           </div>
-          <button class="btn-sm" onclick="saveCurrentPreset()">保存预设</button>
-          <button class="btn-sm" onclick="deleteCurrentPreset()">删除</button>
         </div>
-      </div>
-      <div class="row">
-        <div>
-          <label>音色 <span style="color:var(--muted);font-weight:400">(全局)</span></label>
-          <div class="voice-grid" id="voiceGrid"></div>
-        </div>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <div>
-          <label>语气指令 <span style="color:var(--muted);font-weight:400">(全局，可选)</span></label>
-          <input type="text" id="instructInput" placeholder="用温柔的语气说 / 讲故事的自然语气">
-        </div>
-      </div>
-      <div class="row" style="margin-top:12px">
-        <div>
-          <label>速度</label>
-          <select id="speedSelect">
-            <option value="0.7">0.7x 慢速</option>
-            <option value="0.85">0.85x 较慢</option>
-            <option value="1.0" selected>1.0x 正常</option>
-            <option value="1.2">1.2x 较快</option>
-            <option value="1.5">1.5x 快速</option>
-          </select>
-        </div>
-        <div>
-          <label>格式</label>
-          <select id="formatSelect">
-            <option value="wav">WAV (无损)</option>
-            <option value="mp3">MP3 (压缩)</option>
-            <option value="ogg">OGG (压缩)</option>
-          </select>
-        </div>
-      </div>
-    </div>
 
-    <!-- Generate -->
-    <div class="btn-row">
-      <button class="btn-primary" id="generateBtn" onclick="generate()">生成语音</button>
-      <button class="btn-secondary" id="resumeBtn" onclick="resumeGeneration()" style="display:none">恢复生成</button>
-    </div>
-
-    <!-- Queue -->
-    <div id="queueInfo" style="display:none;margin-top:8px;font-size:13px;color:var(--warn)"></div>
-
-    <!-- Progress -->
-    <div class="card" id="progressCard" style="display:none">
-      <label>生成进度</label>
-      <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
-      <div class="progress-text" id="progressText">准备中...</div>
-    </div>
-
-    <!-- Result -->
-    <div class="result-card card" id="resultCard">
-      <label>生成结果</label>
-      <audio id="audioPlayer" class="audio-player" controls></audio>
-      <div class="result-meta" id="resultMeta"></div>
-      <div class="btn-row">
-        <button class="btn-secondary" onclick="downloadAudio()">下载音频</button>
-      </div>
-    </div>
-
-    <!-- History -->
-    <div class="history-section" id="historySection">
-      <div class="card">
-        <div class="history-toolbar">
-          <input type="text" class="history-search" id="historySearch" placeholder="搜索历史记录..." oninput="debounceSearchHistory()">
-          <label class="history-checkall"><input type="checkbox" id="historyCheckAll" onchange="toggleCheckAll(this.checked)"> 全选</label>
-          <button class="btn-sm" onclick="batchDeleteHistory()" id="batchDeleteBtn" disabled>删除选中</button>
-          <button class="btn-sm" onclick="clearHistory()">清空全部</button>
+        <!-- Parameters -->
+        <div class="card">
+          <div class="row" style="margin-bottom:10px">
+            <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+              <div style="flex:1;min-width:150px">
+                <label>预设</label>
+                <select id="presetSelect" onchange="loadPreset()" style="width:100%">
+                  <option value="">— 选择预设 —</option>
+                </select>
+              </div>
+              <button class="btn-sm" onclick="saveCurrentPreset()">保存预设</button>
+              <button class="btn-sm" onclick="deleteCurrentPreset()">删除</button>
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label>音色 <span style="color:var(--muted);font-weight:400">(全局)</span></label>
+              <div class="voice-grid" id="voiceGrid"></div>
+            </div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <div>
+              <label>语气指令 <span style="color:var(--muted);font-weight:400">(全局，可选)</span></label>
+              <input type="text" id="instructInput" placeholder="用温柔的语气说 / 讲故事的自然语气">
+            </div>
+          </div>
+          <div class="row" style="margin-top:12px">
+            <div>
+              <label>速度</label>
+              <select id="speedSelect">
+                <option value="0.7">0.7x 慢速</option>
+                <option value="0.85">0.85x 较慢</option>
+                <option value="1.0" selected>1.0x 正常</option>
+                <option value="1.2">1.2x 较快</option>
+                <option value="1.5">1.5x 快速</option>
+              </select>
+            </div>
+            <div>
+              <label>格式</label>
+              <select id="formatSelect">
+                <option value="wav">WAV (无损)</option>
+                <option value="mp3">MP3 (压缩)</option>
+                <option value="ogg">OGG (压缩)</option>
+              </select>
+            </div>
+          </div>
         </div>
-        <div id="historyList"></div>
-        <div class="history-footer">
-          <span id="historyCount"></span>
-          <div>
-            <button class="btn-sm" id="historyPrev" onclick="historyPrevPage()" disabled>上一页</button>
-            <span id="historyPageInfo"></span>
-            <button class="btn-sm" id="historyNext" onclick="historyNextPage()" disabled>下一页</button>
+
+        <!-- Generate -->
+        <div class="btn-row">
+          <button class="btn-primary" id="generateBtn" onclick="generate()">生成语音</button>
+          <button class="btn-secondary" id="resumeBtn" onclick="resumeGeneration()" style="display:none">恢复生成</button>
+        </div>
+
+        <!-- Queue -->
+        <div id="queueInfo" style="display:none;margin-top:8px;font-size:13px;color:var(--warn)"></div>
+
+        <!-- Progress -->
+        <div class="card" id="progressCard" style="display:none">
+          <label>生成进度</label>
+          <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+          <div class="progress-text" id="progressText">准备中...</div>
+        </div>
+
+        <!-- Result -->
+        <div class="result-card card" id="resultCard">
+          <label>生成结果</label>
+          <audio id="audioPlayer" class="audio-player" controls></audio>
+          <div class="result-meta" id="resultMeta"></div>
+          <div class="btn-row">
+            <button class="btn-secondary" onclick="downloadAudio()">下载音频</button>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Status -->
-    <div class="status-section" id="statusSection">
-      <div class="card">
-        <div class="status-grid" id="statusGrid">
-          <div class="status-card">
-            <h4>CrispASR</h4>
-            <div class="status-value" id="statusCrispasr">—</div>
-            <div class="status-detail" id="statusCrispasrDetail"></div>
+      <!-- Panel: History -->
+      <div class="panel" id="panelHistory">
+        <h2>📋 历史记录</h2>
+        <div class="card">
+          <div class="history-toolbar">
+            <input type="text" class="history-search" id="historySearch" placeholder="搜索历史记录..." oninput="debounceSearchHistory()">
+            <label class="history-checkall"><input type="checkbox" id="historyCheckAll" onchange="toggleCheckAll(this.checked)"> 全选</label>
+            <button class="btn-sm" onclick="batchDeleteHistory()" id="batchDeleteBtn" disabled>删除选中</button>
+            <button class="btn-sm" onclick="clearHistory()">清空全部</button>
           </div>
-          <div class="status-card">
-            <h4>任务队列</h4>
-            <div class="status-value" id="statusQueue">0</div>
-            <div class="status-detail" id="statusQueueDetail"></div>
-          </div>
-          <div class="status-card">
-            <h4>CPU</h4>
-            <div class="status-value" id="statusCpu">—</div>
-            <div class="status-bar"><div class="status-bar-fill" id="statusCpuBar" style="width:0;background:var(--accent)"></div></div>
-          </div>
-          <div class="status-card">
-            <h4>内存</h4>
-            <div class="status-value" id="statusMem">—</div>
-            <div class="status-bar"><div class="status-bar-fill" id="statusMemBar" style="width:0;background:#f59e0b"></div></div>
-            <div class="status-detail" id="statusMemDetail"></div>
-          </div>
-          <div class="status-card" style="grid-column:1/-1">
-            <h4>磁盘</h4>
-            <div class="status-value" id="statusDisk">—</div>
-            <div class="status-bar"><div class="status-bar-fill" id="statusDiskBar" style="width:0;background:#22c55e"></div></div>
-            <div class="status-detail" id="statusDiskDetail"></div>
+          <div id="historyList"></div>
+          <div class="history-footer">
+            <span id="historyCount"></span>
+            <div>
+              <button class="btn-sm" id="historyPrev" onclick="historyPrevPage()" disabled>上一页</button>
+              <span id="historyPageInfo"></span>
+              <button class="btn-sm" id="historyNext" onclick="historyNextPage()" disabled>下一页</button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Logs -->
-    <div class="logs-section" id="logsSection">
-      <div class="card">
-        <div class="logs-toolbar">
-          <input type="text" class="logs-search" id="logsSearch" placeholder="过滤日志..." oninput="debounceFilterLogs()">
-          <button class="btn-sm" onclick="loadLogs()">刷新</button>
-          <button class="btn-sm" onclick="toggleLogAutoRefresh()" id="logsAutoBtn">自动刷新: 关</button>
+      <!-- Panel: Clone -->
+      <div class="panel" id="panelClone">
+        <h2>🎭 语音克隆</h2>
+        <div class="card">
+          <label>参考音频管理</label>
+          <div id="voiceList" style="margin-bottom:12px"></div>
+          <div class="upload-zone" id="uploadZone" onclick="document.getElementById('refAudio').click()">
+            <div id="uploadText">📎 点击或拖拽上传参考音频（WAV/MP3，10-15秒）</div>
+          </div>
+          <input type="file" id="refAudio" accept="audio/*" style="display:none" onchange="uploadRefAudio()">
+          <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+            <button class="btn-sm" onclick="startRecording()" id="recordBtn">🎤 录制</button>
+            <button class="btn-sm" onclick="stopRecording()" id="stopRecordBtn" style="display:none">⏹ 停止</button>
+            <span id="recordStatus" style="font-size:12px;color:var(--muted)"></span>
+          </div>
+          <div class="hint">上传干净的人声录音，用于克隆音色。需配合支持克隆的模型使用。</div>
         </div>
-        <div class="logs-terminal" id="logsTerminal">点击"日志"标签加载...</div>
       </div>
-    </div>
+
+      <!-- Panel: Compare -->
+      <div class="panel" id="panelCompare">
+        <h2>⚖️ 克隆效果对比</h2>
+        <div class="card">
+          <div style="display:flex;gap:8px;margin:8px 0;flex-wrap:wrap;align-items:center">
+            <div style="flex:1;min-width:120px">
+              <label style="font-size:12px">音色 A</label>
+              <select id="compareVoiceA" style="width:100%"></select>
+            </div>
+            <div style="flex:1;min-width:120px">
+              <label style="font-size:12px">音色 B</label>
+              <select id="compareVoiceB" style="width:100%"></select>
+            </div>
+          </div>
+          <div style="margin:8px 0">
+            <textarea id="compareText" rows="2" placeholder="输入对比文本（简短即可，如'你好，今天天气真不错'）" style="width:100%;resize:vertical"></textarea>
+          </div>
+          <button class="btn-primary" onclick="startCompare()" id="compareBtn">开始对比</button>
+          <div id="compareResult" style="display:none;margin-top:12px">
+            <div class="compare-row">
+              <div class="compare-col">
+                <h4>🔊 A: <span id="compareNameA"></span></h4>
+                <audio id="compareAudioA" controls></audio>
+              </div>
+              <div class="compare-col">
+                <h4>🔊 B: <span id="compareNameB"></span></h4>
+                <audio id="compareAudioB" controls></audio>
+              </div>
+            </div>
+            <div class="compare-status" id="compareStatus"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel: Batch -->
+      <div class="panel" id="panelBatch">
+        <h2>📦 批量合成</h2>
+        <div class="card">
+          <div class="hint" style="margin-bottom:8px">每行一段文本，点击提交自动逐条合成。最多20条。</div>
+          <textarea id="batchText" rows="8" placeholder="第一段文字&#10;第二段文字&#10;第三段文字&#10;..." style="width:100%;resize:vertical;font-size:13px"></textarea>
+          <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+            <button class="btn-primary" onclick="startBatch()" id="batchBtn">提交批量</button>
+            <span id="batchCount" style="font-size:12px;color:var(--muted)"></span>
+          </div>
+          <div id="batchProgress" style="display:none;margin-top:12px">
+            <div class="batch-progress">
+              <div class="batch-progress-bar"><div class="batch-progress-fill" id="batchFill" style="width:0%"></div></div>
+            </div>
+            <div id="batchItems"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel: Status -->
+      <div class="panel" id="panelStatus">
+        <h2>📊 服务状态</h2>
+        <div class="card">
+          <div class="status-grid" id="statusGrid">
+            <div class="status-card">
+              <h4>CrispASR</h4>
+              <div class="status-value" id="statusCrispasr">—</div>
+              <div class="status-detail" id="statusCrispasrDetail"></div>
+            </div>
+            <div class="status-card">
+              <h4>任务队列</h4>
+              <div class="status-value" id="statusQueue">0</div>
+              <div class="status-detail" id="statusQueueDetail"></div>
+            </div>
+            <div class="status-card">
+              <h4>CPU</h4>
+              <div class="status-value" id="statusCpu">—</div>
+              <div class="status-bar"><div class="status-bar-fill" id="statusCpuBar" style="width:0;background:var(--accent)"></div></div>
+            </div>
+            <div class="status-card">
+              <h4>内存</h4>
+              <div class="status-value" id="statusMem">—</div>
+              <div class="status-bar"><div class="status-bar-fill" id="statusMemBar" style="width:0;background:#f59e0b"></div></div>
+              <div class="status-detail" id="statusMemDetail"></div>
+            </div>
+            <div class="status-card" style="grid-column:1/-1">
+              <h4>磁盘</h4>
+              <div class="status-value" id="statusDisk">—</div>
+              <div class="status-bar"><div class="status-bar-fill" id="statusDiskBar" style="width:0;background:#22c55e"></div></div>
+              <div class="status-detail" id="statusDiskDetail"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel: Logs -->
+      <div class="panel" id="panelLogs">
+        <h2>📄 日志</h2>
+        <div class="card">
+          <div class="logs-toolbar">
+            <input type="text" class="logs-search" id="logsSearch" placeholder="过滤日志..." oninput="debounceFilterLogs()">
+            <button class="btn-sm" onclick="loadLogs()">刷新</button>
+            <button class="btn-sm" onclick="toggleLogAutoRefresh()" id="logsAutoBtn">自动刷新: 关</button>
+          </div>
+          <div class="logs-terminal" id="logsTerminal">点击"日志"标签加载...</div>
+        </div>
+      </div>
+
+      <!-- Panel: Model -->
+      <div class="panel" id="panelModel">
+        <h2>🧠 模型选择</h2>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <label style="margin:0">当前模型</label>
+            <span class="hint" id="currentModelName">当前: --</span>
+          </div>
+          <div id="modelList"></div>
+          <div class="hint" style="margin-top:8px">切换模型会重启CrispASR服务，约10-20秒不可用</div>
+        </div>
+      </div>
+
+      <!-- Panel: Update -->
+      <div class="panel" id="panelUpdate">
+        <h2>🔄 CrispASR 更新</h2>
+        <div class="card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+            <label style="margin:0">版本信息</label>
+            <span id="versionInfo" class="hint">当前版本: 检测中...</span>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <button class="btn-secondary" onclick="checkUpdate()">检查更新</button>
+            <button class="btn-warn" id="updateBtn" onclick="doUpdate()" disabled>更新并编译</button>
+            <span id="updateStatus"></span>
+          </div>
+          <div class="update-log" id="updateLog" style="display:none"></div>
+        </div>
+      </div>
+
+    </main>
   </div>
 </div>
 
@@ -1597,19 +1641,36 @@ async function deleteCurrentPreset() {
   } catch(e) { alert('删除失败: ' + e.message); }
 }
 
-// ─── Section Toggle ───────────────────
-function toggleSection(name) {
-  const el = document.getElementById(name+'Section');
-  el.classList.toggle('show');
-  if (name === 'history' && el.classList.contains('show')) loadHistory();
-  if (name === 'update' && el.classList.contains('show')) checkUpdate();
-  if (name === 'status' && el.classList.contains('show')) startStatusRefresh();
-  if (name === 'status' && !el.classList.contains('show')) stopStatusRefresh();
-  if (name === 'logs' && el.classList.contains('show')) startLogsRefresh();
-  if (name === 'logs' && !el.classList.contains('show')) stopLogsRefresh();
-  if (name === 'clone' && el.classList.contains('show')) loadVoiceList();
-  if (name === 'compare' && el.classList.contains('show')) loadCompareVoices();
+// ─── Navigation ───────────────────────
+let _currentPanel = 'synthesize';
+function switchNav(name) {
+  // Deactivate old panel + nav item
+  const oldPanel = document.getElementById('panel' + _currentPanel.charAt(0).toUpperCase() + _currentPanel.slice(1));
+  if (oldPanel) oldPanel.classList.remove('active');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+
+  // Stop refreshers for old panel
+  if (_currentPanel === 'status') stopStatusRefresh();
+  if (_currentPanel === 'logs') stopLogsRefresh();
+
+  // Activate new panel + nav item
+  const newPanel = document.getElementById('panel' + name.charAt(0).toUpperCase() + name.slice(1));
+  if (newPanel) newPanel.classList.add('active');
+  const navItem = document.querySelector(`.nav-item[data-panel="${name}"]`);
+  if (navItem) navItem.classList.add('active');
+  _currentPanel = name;
+
+  // Load data on first visit
+  if (name === 'history') loadHistory();
+  if (name === 'update') checkUpdate();
+  if (name === 'status') startStatusRefresh();
+  if (name === 'logs') startLogsRefresh();
+  if (name === 'clone') loadVoiceList();
+  if (name === 'compare') loadCompareVoices();
 }
+
+// Backward compat: toggleSection redirects to switchNav
+function toggleSection(name) { switchNav(name); }
 
 // ─── Boot ─────────────────────────────
 init();
