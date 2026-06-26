@@ -59,6 +59,17 @@ def init_db() -> None:
 
 
 def db_conn() -> sqlite3.Connection:
+    """Get a database connection. Supports context manager for auto-close."""
     conn = sqlite3.connect(str(config.DB_PATH))
     conn.row_factory = sqlite3.Row
     return conn
+
+
+class DBCtx:
+    """Context manager wrapper for db_conn(). Usage: with DBCtx() as conn: ..."""
+    def __enter__(self):
+        self._conn = db_conn()
+        return self._conn
+    def __exit__(self, *exc):
+        self._conn.close()
+        return False

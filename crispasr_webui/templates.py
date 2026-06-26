@@ -108,7 +108,7 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 
 /* History */
 .history-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
-.history-search{flex:1;min-width:180px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:13px}
+.history-search{flex:1;min-width:180px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px}
 .history-search:focus{outline:none;border-color:var(--accent)}
 .history-checkall{margin-right:4px;cursor:pointer}
 .history-item{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--card);gap:8px}
@@ -127,7 +127,7 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .status-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
 .status-card{padding:14px;border:1px solid var(--border);border-radius:8px;background:var(--card)}
 .status-card h4{margin:0 0 8px;font-size:13px;color:var(--muted);font-weight:normal}
-.status-value{font-size:22px;font-weight:700;color:var(--fg)}
+.status-value{font-size:22px;font-weight:700;color:var(--text)}
 .status-detail{font-size:11px;color:var(--muted);margin-top:4px}
 .status-bar{height:4px;background:var(--border);border-radius:2px;margin-top:6px;overflow:hidden}
 .status-bar-fill{height:100%;border-radius:2px;transition:width .5s}
@@ -136,7 +136,7 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 
 /* Logs */
 .logs-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
-.logs-search{flex:1;min-width:180px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:13px}
+.logs-search{flex:1;min-width:180px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px}
 .logs-search:focus{outline:none;border-color:var(--accent)}
 .logs-terminal{background:#0d1117;color:#c9d1d9;font-family:'Courier New',monospace;font-size:12px;line-height:1.5;padding:12px;border-radius:8px;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
 .logs-terminal::-webkit-scrollbar{width:6px}
@@ -735,6 +735,7 @@ async function doUpdate() {
     if (data.success) {
       statusEl.textContent = '✅ ' + data.message;
       loadModelInfo();
+      checkUpdate();  // Refresh version info after update
     } else {
       statusEl.textContent = '❌ ' + data.message;
     }
@@ -751,6 +752,9 @@ async function init() {
   if (await checkAuth()) showApp();
   document.getElementById('textInput').addEventListener('input', function(){
     document.getElementById('charCount').textContent = this.value.length + '字';
+    // Invalidate chunk preview when text changes
+    chunksConfig = [];
+    document.getElementById('chunkPreview').classList.remove('show');
   });
   // Drag & drop upload
   const zone = document.getElementById('uploadZone');
@@ -837,7 +841,7 @@ function renderChunks() {
 }
 
 function escHtml(s) { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
-function escAttr(s) { return s.replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function escAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function toggleChunkExpand(i) {
   const item = document.querySelector(`.chunk-item[data-index="${i}"]`);
@@ -983,9 +987,9 @@ function pollProgress() {
       fill.style.width = (data.progress || 0) + '%';
 
       if (data.status === 'queued') {
-        ptxt.innerHTML = `<span class="spinner"></span>队列中第 ${data.queue_pos || '?'} 位...`;
+        ptxt.innerHTML = `<span class="spinner"></span>队列中第 ${escHtml(String(data.queue_pos || '?'))} 位...`;
       } else if (data.status === 'generating') {
-        ptxt.innerHTML = `<span class="spinner"></span>正在生成 ${data.current}/${data.total} 段... (${data.progress}%)`;
+        ptxt.innerHTML = `<span class="spinner"></span>正在生成 ${escHtml(String(data.current))}/${escHtml(String(data.total))} 段... (${escHtml(String(data.progress))}%)`;
       } else if (data.status === 'done') {
         clearInterval(pollTimer);
         fill.style.width = '100%';
@@ -1411,7 +1415,7 @@ async function loadHistory() {
         <input type="checkbox" class="history-check" data-id="${item.id}" ${checked} onchange="onHistoryCheck()">
         <div class="history-body">
           <div class="history-text" title="${escAttr(item.text)}" onclick="regenerateFromHistory('${item.id}')">${statusIcon} ${escHtml(item.text.slice(0,80))}</div>
-          <div class="history-meta">${item.voice} · ${dur} · ${time}</div>
+          <div class="history-meta">${escHtml(item.voice)} · ${dur} · ${time}</div>
         </div>
         <div class="history-actions">
           ${item.audio_file ? `<button class="btn-sm" onclick="playHistory('${item.audio_file}')">▶</button>` : ''}
@@ -1447,7 +1451,7 @@ function toggleCheckAll(checked) {
     c.checked = checked;
     if (checked) historyChecked.add(c.dataset.id);
   });
-  document.getElementById('batchDeleteBtn').disabled = !checked;
+  document.getElementById('batchDeleteBtn').disabled = historyChecked.size === 0;
 }
 
 async function deleteHistoryItem(id) {
@@ -1693,7 +1697,8 @@ function switchNav(name) {
 
   // Activate new panel + nav item
   const newPanel = document.getElementById('panel' + name.charAt(0).toUpperCase() + name.slice(1));
-  if (newPanel) newPanel.classList.add('active');
+  if (!newPanel) { console.warn('Panel not found:', name); return; }
+  newPanel.classList.add('active');
   const navItem = document.querySelector(`.nav-item[data-panel="${name}"]`);
   if (navItem) navItem.classList.add('active');
   _currentPanel = name;

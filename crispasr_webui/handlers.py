@@ -400,6 +400,9 @@ class TTSHandler(BaseHTTPRequestHandler):
         task_queue.cleanup_tasks()
         task_id = self.path.split("/")[-1].split("?")[0]
         task = task_queue.get_task(task_id)
+        if not task or not task.get("status"):
+            self._send_json(404, {"error": "任务不存在"})
+            return
         self._send_json(200, task)
 
     # ─── Model Info ──────────────────
@@ -973,7 +976,8 @@ class TTSHandler(BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"error": str(e)}).encode())
 
     def log_message(self, fmt, *args):
-        if "/api/" in str(args) or "/v1/" in str(args):
+        # Only log API requests (check self.path, not args)
+        if "/api/" in self.path or "/v1/" in self.path:
             super().log_message(fmt, *args)
 
 
