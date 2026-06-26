@@ -144,3 +144,7 @@ sudo systemctl daemon-reload
 ## License
 
 MIT
+
+---
+
+**[中文文档](README_zh.md)**
