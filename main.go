@@ -27,7 +27,7 @@ import (
 // ─── Constants ──────────────────────────────────────────
 
 const (
-	appVersion    = "1.1.0"
+	appVersion    = "1.2.0"
 	wavHeaderSize = 44
 	splitThreshold = 800
 	maxTruncateLen = 2000
@@ -38,6 +38,9 @@ const (
 	minPasswordLen = 4
 	httpClientTimeout = 120 * time.Second
 	maxAudioSize = 100 << 20 // 100MB safety cap for single TTS response
+	crispASRIdleTimeout = 5 * time.Minute // auto-stop crispasr after 5 min idle
+	crispASRStartWait   = 120 * time.Second // max wait for crispasr to become ready
+	crispASRHealthPath  = "/v1/models"
 )
 
 // ─── Pre-compiled regexes ───────────────────────────────
@@ -56,31 +59,42 @@ var httpClient = &http.Client{Timeout: httpClientTimeout}
 // ─── Config ──────────────────────────────────────────────
 
 type Config struct {
-	DataDir     string
-	CrispASRDir string
-	JWTSecret   string
-	JWTExpiry   int
-	Port        int
-	Password    string
-	MaxBody     int64
-	MaxUpload   int64
+	DataDir          string
+	CrispASRDir      string
+	JWTSecret        string
+	JWTExpiry        int
+	Port             int
+	Password         string
+	MaxBody          int64
+	MaxUpload        int64
+	AutoStartStop    bool          // enable crispasr auto start/stop
+	IdleTimeout      time.Duration // idle duration before auto-stop
+	CrispASRPort     string        // crispasr port for health check
 }
 
 var cfg Config
 
 func initConfig() {
 	cfg = Config{
-		DataDir:     envOr("CRISPASR_DATA_DIR", filepath.Join(".", "tts_data")),
-		CrispASRDir: envOr("CRISPASR_DIR", "."),
-		JWTSecret:   envOr("JWT_SECRET", ""),
-		JWTExpiry:   604800,
-		Port:        8888,
-		Password:    envOr("TTS_PASSWORD", ""),
-		MaxBody:     10 << 20,
-		MaxUpload:   10 << 20,
+		DataDir:       envOr("CRISPASR_DATA_DIR", filepath.Join(".", "tts_data")),
+		CrispASRDir:   envOr("CRISPASR_DIR", "."),
+		JWTSecret:     envOr("JWT_SECRET", ""),
+		JWTExpiry:     604800,
+		Port:          8888,
+		Password:      envOr("TTS_PASSWORD", ""),
+		MaxBody:       10 << 20,
+		MaxUpload:     10 << 20,
+		AutoStartStop: envOr("CRISPASR_AUTOSTART", "1") == "1",
+		IdleTimeout:   crispASRIdleTimeout,
+		CrispASRPort:  envOr("CRISPASR_PORT", "8080"),
 	}
 	if p := envOr("TTS_PORT", ""); p != "" {
 		cfg.Port, _ = strconv.Atoi(p)
+	}
+	if d := envOr("CRISPASR_IDLE_TIMEOUT", ""); d != "" {
+		if sec, err := strconv.Atoi(d); err == nil && sec >= 60 {
+			cfg.IdleTimeout = time.Duration(sec) * time.Second
+		}
 	}
 }
 
@@ -398,6 +412,131 @@ func enqueue(t *Task) int {
 	return t.QueuePos
 }
 
+// ─── CrispASR Auto Start/Stop ───────────────────────────
+
+var (
+	crispASRMu     sync.Mutex
+	crispASRState  = "unknown" // "running", "stopped", "starting", "stopping"
+	lastActiveTime time.Time
+	stopTimer      *time.Timer
+)
+
+// ensureCrispASRRunning starts crispasr if needed and waits for it to be healthy.
+func ensureCrispASRRunning() error {
+	if !cfg.AutoStartStop {
+		return nil
+	}
+	crispASRMu.Lock()
+	defer crispASRMu.Unlock()
+
+	if crispASRState == "running" {
+		lastActiveTime = time.Now()
+		return nil
+	}
+
+	// Cancel any pending stop
+	if stopTimer != nil {
+		stopTimer.Stop()
+		stopTimer = nil
+	}
+
+	// Already starting? Wait for it.
+	if crispASRState == "starting" {
+		crispASRMu.Unlock()
+		err := waitForCrispASR()
+		crispASRMu.Lock()
+		return err
+	}
+
+	log.Printf("AUTO: Starting CrispASR service...")
+	crispASRState = "starting"
+
+	if err := exec.Command("sudo", "systemctl", "start", "crispasr").Run(); err != nil {
+		crispASRState = "stopped"
+		return fmt.Errorf("systemctl start crispasr: %w", err)
+	}
+
+	crispASRMu.Unlock()
+	err := waitForCrispASR()
+	crispASRMu.Lock()
+	if err != nil {
+		crispASRState = "stopped"
+		return err
+	}
+
+	crispASRState = "running"
+	lastActiveTime = time.Now()
+	log.Printf("AUTO: CrispASR is running")
+	return nil
+}
+
+// waitForCrispASR polls the health endpoint until crispasr is ready.
+func waitForCrispASR() error {
+	deadline := time.Now().Add(crispASRStartWait)
+	url := "http://localhost:" + cfg.CrispASRPort + crispASRHealthPath
+	for time.Now().Before(deadline) {
+		resp, err := httpClient.Get(url)
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				return nil
+			}
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return fmt.Errorf("crispasr did not become ready within %v", crispASRStartWait)
+}
+
+// scheduleCrispASRStop sets a timer to stop crispasr after the idle timeout.
+func scheduleCrispASRStop() {
+	if !cfg.AutoStartStop {
+		return
+	}
+	crispASRMu.Lock()
+	defer crispASRMu.Unlock()
+
+	if crispASRState != "running" {
+		return
+	}
+
+	// Cancel previous timer
+	if stopTimer != nil {
+		stopTimer.Stop()
+	}
+
+	stopTimer = time.AfterFunc(cfg.IdleTimeout, func() {
+		crispASRMu.Lock()
+		defer crispASRMu.Unlock()
+
+		// Check again: a task may have arrived since the timer was set
+		queueMu.Lock()
+		busy := len(queue) > 0 || active != nil
+		queueMu.Unlock()
+		if busy {
+			return
+		}
+
+		log.Printf("AUTO: CrispASR idle for %v, stopping...", cfg.IdleTimeout)
+		crispASRState = "stopping"
+		if err := exec.Command("sudo", "systemctl", "stop", "crispasr").Run(); err != nil {
+			log.Printf("AUTO: Failed to stop crispasr: %v", err)
+			crispASRState = "running"
+			return
+		}
+		crispASRState = "stopped"
+		log.Printf("AUTO: CrispASR stopped (idle timeout)")
+	})
+}
+
+// isCrispASRRunning checks if the crispasr process is alive.
+func isCrispASRRunning() bool {
+	out, err := exec.Command("pgrep", "-f", "crispasr.*--server").Output()
+	if err != nil {
+		return false
+	}
+	return len(strings.TrimSpace(string(out))) > 0
+}
+
 func queueLoop() {
 	for {
 		queueMu.Lock()
@@ -411,11 +550,31 @@ func queueLoop() {
 		}
 		queueMu.Unlock()
 
+		// Auto-start CrispASR before processing
+		if err := ensureCrispASRRunning(); err != nil {
+			log.Printf("AUTO: Failed to start CrispASR: %v", err)
+			queueMu.Lock()
+			active.Status = "error"
+			active.Error = "CrispASR 服务启动失败: " + err.Error()
+			dbExec("UPDATE history SET status='error' WHERE id=?", active.ID)
+			active = nil
+			queueMu.Unlock()
+			continue
+		}
+
 		processTask(active)
 
 		queueMu.Lock()
 		active = nil
 		queueMu.Unlock()
+
+		// Schedule auto-stop if queue is now empty
+		queueMu.Lock()
+		empty := len(queue) == 0
+		queueMu.Unlock()
+		if empty {
+			scheduleCrispASRStop()
+		}
 	}
 }
 
@@ -576,7 +735,7 @@ func createTask(p taskParams) (*Task, int) {
 	task := &Task{
 		ID: taskID, Status: "queued", Total: len(p.chunks), Voice: p.voice,
 		Instruct: p.instruct, Speed: p.speed, Fmt: p.fmt,
-		ChunksJSON: string(chunksJSON), APBase: "http://localhost:8080",
+		ChunksJSON: string(chunksJSON), APBase: "http://localhost:" + cfg.CrispASRPort,
 	}
 	pos := enqueue(task)
 	return task, pos
@@ -948,6 +1107,17 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Sync autostart state with reality
+	crispASRMu.Lock()
+	if crispASRActive && (crispASRState == "unknown" || crispASRState == "stopped") {
+		crispASRState = "running"
+		lastActiveTime = time.Now()
+	} else if !crispASRActive && crispASRState == "running" {
+		crispASRState = "stopped"
+	}
+	autoState := crispASRState
+	crispASRMu.Unlock()
+
 	queueMu.Lock()
 	qd := len(queue)
 	hasActive := active != nil
@@ -959,7 +1129,7 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendJSON(w, 200, map[string]any{
-		"crispasr": map[string]any{"active": crispASRActive, "pid": crispASRPid},
+		"crispasr": map[string]any{"active": crispASRActive, "pid": crispASRPid, "autostart": cfg.AutoStartStop, "state": autoState},
 		"cpu":      map[string]any{"percent": round(cpuPct, 1)},
 		"memory":   map[string]any{"total_mb": memTotal / 1024, "used_mb": (memTotal - memAvail) / 1024, "percent": memPct},
 		"disk": map[string]any{
@@ -1084,6 +1254,12 @@ func handleDeleteVoice(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleAudition(w http.ResponseWriter, r *http.Request) {
+	// Ensure CrispASR is running before audition
+	if err := ensureCrispASRRunning(); err != nil {
+		sendJSON(w, 503, map[string]string{"error": "CrispASR 服务未启动，请稍后重试"})
+		return
+	}
+
 	var body struct {
 		Text     string  `json:"text"`
 		Voice    string  `json:"voice"`
@@ -1098,7 +1274,7 @@ func handleAudition(w http.ResponseWriter, r *http.Request) {
 		"model": "tts-1", "input": body.Text, "voice": p.voice,
 		"speed": p.speed, "consent_attestation": "test", "spoken_disclaimer": false,
 	})
-	req, _ := http.NewRequest("POST", "http://localhost:8080/v1/audio/speech", strings.NewReader(string(payload)))
+	req, _ := http.NewRequest("POST", "http://localhost:"+cfg.CrispASRPort+"/v1/audio/speech", strings.NewReader(string(payload)))
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := httpClient.Do(req)
 	if err != nil {
@@ -1108,6 +1284,9 @@ func handleAudition(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	w.Header().Set("Content-Type", "audio/wav")
 	io.Copy(w, io.LimitReader(resp.Body, maxAudioSize))
+
+	// Schedule auto-stop after audition
+	scheduleCrispASRStop()
 }
 
 func handleCompare(w http.ResponseWriter, r *http.Request) {
@@ -1254,7 +1433,7 @@ func handleResume(w http.ResponseWriter, r *http.Request) {
 	json.Unmarshal([]byte(chunksJSON), &chunks)
 	task := &Task{ID: id, Status: "pending", Total: len(chunks), Voice: voice,
 		Instruct: instruct, Speed: speed, Fmt: fmt_,
-		ChunksJSON: chunksJSON, APBase: "http://localhost:8080"}
+		ChunksJSON: chunksJSON, APBase: "http://localhost:" + cfg.CrispASRPort}
 	enqueue(task)
 	sendJSON(w, 200, map[string]string{"task_id": id})
 }
@@ -1380,6 +1559,18 @@ func main() {
 
 	if err := initDB(); err != nil {
 		log.Fatal("DB init failed: ", err)
+	}
+
+	// Initialize CrispASR state from current process reality
+	if isCrispASRRunning() {
+		crispASRState = "running"
+		lastActiveTime = time.Now()
+		log.Printf("AUTO: CrispASR already running")
+	} else {
+		crispASRState = "stopped"
+		if cfg.AutoStartStop {
+			log.Printf("AUTO: CrispASR auto-start/stop enabled (idle timeout: %v)", cfg.IdleTimeout)
+		}
 	}
 
 	go queueLoop()

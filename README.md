@@ -15,6 +15,7 @@
 - 🔄 **模型切换** — 7 种后端：Qwen3-TTS、Kokoro、CosyVoice3、Chatterbox
 - 📈 **系统监控** — CPU / 内存 / 磁盘 / 队列深度实时状态
 - 🔒 **密码认证** — JWT + 频率限制，密钥自动持久化
+- ⚡ **CrispASR 自动启停** — 有任务自动拉起，空闲自动停止，省内存
 - 📱 **响应式界面** — 深色主题，支持移动端
 
 ## 快速开始
@@ -142,6 +143,9 @@ TTS_PASSWORD=your_password CRISPASR_DIR=/opt/crispasr \
 | `CRISPASR_DATA_DIR` | `./tts_data` | 数据目录（数据库、音频、上传） |
 | `TTS_PORT` | `8888` | HTTP 端口 |
 | `JWT_SECRET` | *（自动生成并持久化）* | JWT 签名密钥 |
+| `CRISPASR_AUTOSTART` | `1` | 自动启停 CrispASR（`1`=开，`0`=关） |
+| `CRISPASR_IDLE_TIMEOUT` | `300` | 空闲多少秒后自动停止 CrispASR（最小60） |
+| `CRISPASR_PORT` | `8080` | CrispASR 服务端口（健康检查用） |
 
 ## 支持平台
 
@@ -208,6 +212,21 @@ curl -fsSL https://raw.githubusercontent.com/yzy806806/crispasr-webui/main/insta
 ```
 
 CrispASR 本体的更新可在 Web 界面中点击「一键更新」按钮。
+</details>
+
+<details>
+<summary><strong>CrispASR 自动启停是怎么工作的？</strong></summary>
+
+v1.2.0 新增功能。默认开启（`CRISPASR_AUTOSTART=1`）：
+
+1. **提交任务时**：WebUI 检测 CrispASR 是否在运行，没运行则自动 `systemctl start crispasr`，等待健康检查通过后才开始处理
+2. **试听预览时**：同样自动拉起 CrispASR
+3. **任务完成后**：如果队列为空，启动一个 5 分钟倒计时（`CRISPASR_IDLE_TIMEOUT=300`），到期后自动 `systemctl stop crispasr`
+4. **倒计时期间有新任务**：自动取消倒计时
+
+**前提条件**：WebUI 运行用户需要有 sudo 权限执行 `systemctl start/stop crispasr`。一键安装脚本会自动配置 sudoers。
+
+**关闭自动启停**：在 `/etc/crispasr-webui.env` 中设置 `CRISPASR_AUTOSTART=0`，然后重启 WebUI。
 </details>
 
 ## License

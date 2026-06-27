@@ -15,6 +15,7 @@ A lightweight web UI for [CrispASR](https://github.com/CrispStrobe/CrispASR) TTS
 - 🔄 Model switching (7 backends: Qwen3-TTS, Kokoro, CosyVoice3, Chatterbox)
 - 📈 System status monitoring (CPU / memory / disk / queue)
 - 🔐 Password authentication with JWT
+- ⚡ CrispASR auto start/stop — starts on demand, stops when idle to save memory
 - 📦 Single static binary — no Python, no pip, no venv
 - 🔄 Resumable tasks & one-click CrispASR updates
 
