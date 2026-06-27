@@ -199,6 +199,9 @@ if [ "$OS" = "linux" ]; then
 TTS_PASSWORD=${TTS_PASSWORD}
 CRISPASR_DIR=${INSTALL_DIR}
 CRISPASR_DATA_DIR=${DATA_DIR}
+CRISPASR_PORT=${CRISPASR_PORT}
+CRISPASR_AUTOSTART=1
+CRISPASR_IDLE_TIMEOUT=300
 EOF
     chmod 600 "$ENV_FILE"
     ok "Password saved to ${ENV_FILE}"
@@ -207,6 +210,7 @@ else
     echo "  export TTS_PASSWORD='***'"
     echo "  export CRISPASR_DIR='${INSTALL_DIR}'"
     echo "  export CRISPASR_DATA_DIR='${DATA_DIR}'"
+    echo "  export CRISPASR_AUTOSTART=1"
 fi
 
 # ─── Configure systemd services (Linux only) ──────────────
@@ -251,11 +255,11 @@ WantedBy=multi-user.target
 EOF
 
     # --- WebUI service (Go binary) ---
+    # Note: no Requires=crispasr.service — WebUI auto-starts/stops CrispASR on demand
     cat > /etc/systemd/system/crispasr-webui.service << EOF
 [Unit]
 Description=CrispASR TTS Web UI (Go)
 After=network.target crispasr.service
-Requires=crispasr.service
 
 [Service]
 Type=simple
@@ -271,6 +275,13 @@ StandardError=journal
 [Install]
 WantedBy=multi-user.target
 EOF
+
+    # --- Sudoers for auto start/stop ---
+    SUDOERS_FILE="/etc/sudoers.d/crispasr-autostart"
+    cat > "$SUDOERS_FILE" << EOF
+${WEBUI_USER} ALL=(ALL) NOPASSWD: /usr/bin/systemctl start crispasr, /usr/bin/systemctl stop crispasr, /usr/bin/systemctl restart crispasr
+EOF
+    chmod 440 "$SUDOERS_FILE"
 
     systemctl daemon-reload
     systemctl enable crispasr crispasr-webui
@@ -293,6 +304,8 @@ EOF
     echo ""
     echo -e "  URL:      ${GREEN}http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):${WEBUI_PORT}${NC}"
     echo -e "  Password: ${TTS_PASSWORD}"
+    echo ""
+    echo -e "  ${YELLOW}⚡ Auto start/stop enabled${NC} — CrispASR stops after 5 min idle, starts on demand"
     echo ""
     echo -e "  Services:  ${CYAN}systemctl status crispasr crispasr-webui${NC}"
     echo -e "  Logs:      ${CYAN}journalctl -u crispasr-webui -f${NC}"
