@@ -1,7 +1,3 @@
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
-dist/
-build/
-
+crispasr-webui
+crispasr-webui-arm64
+*.exe
