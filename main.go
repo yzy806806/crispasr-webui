@@ -27,7 +27,7 @@ import (
 // ─── Constants ──────────────────────────────────────────
 
 const (
-	appVersion    = "1.2.0"
+	appVersion    = "1.3.0"
 	wavHeaderSize = 44
 	splitThreshold = 800
 	maxTruncateLen = 2000
@@ -1473,7 +1473,7 @@ func handleCrispASRUpdate(w http.ResponseWriter, r *http.Request) {
 	downloadURL := fmt.Sprintf("https://github.com/CrispStrobe/CrispASR/releases/download/%s/%s", latestTag, asset)
 	binaryDir := filepath.Join(cfg.CrispASRDir, "bin")
 
-	// ── Step 3: Download ─────────────────────────────────────
+	// ── Step 3: Download (with 10-minute timeout for large files) ──
 	tmpDir, err := os.MkdirTemp("", "crispasr-update-*")
 	if err != nil {
 		sendJSON(w, 500, map[string]any{"success": false, "message": "创建临时目录失败", "log": err.Error()})
@@ -1484,7 +1484,8 @@ func handleCrispASRUpdate(w http.ResponseWriter, r *http.Request) {
 	archivePath := filepath.Join(tmpDir, asset)
 	log.Printf("UPDATE: Downloading %s ...", downloadURL)
 
-	dlResp, err := http.Get(downloadURL)
+	dlClient := &http.Client{Timeout: 10 * time.Minute}
+	dlResp, err := dlClient.Get(downloadURL)
 	if err != nil {
 		sendJSON(w, 500, map[string]any{"success": false, "message": "下载失败", "log": err.Error()})
 		return
@@ -1536,24 +1537,9 @@ func handleCrispASRUpdate(w http.ResponseWriter, r *http.Request) {
 	exec.Command("sudo", "systemctl", "stop", "crispasr").Run()
 
 	dstBinary := filepath.Join(binaryDir, "crispasr")
-	if err := os.Rename(binarySrc, dstBinary); err != nil {
-		// Cross-device rename — copy instead
-		src, err := os.Open(binarySrc)
-		if err != nil {
-			sendJSON(w, 500, map[string]any{"success": false, "message": "复制二进制失败", "log": err.Error()})
-			return
-		}
-		defer src.Close()
-		dst, err := os.OpenFile(dstBinary, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
-		if err != nil {
-			sendJSON(w, 500, map[string]any{"success": false, "message": "写入二进制失败", "log": err.Error()})
-			return
-		}
-		defer dst.Close()
-		if _, err := io.Copy(dst, src); err != nil {
-			sendJSON(w, 500, map[string]any{"success": false, "message": "写入二进制失败", "log": err.Error()})
-			return
-		}
+	if err := copyFile(binarySrc, dstBinary); err != nil {
+		sendJSON(w, 500, map[string]any{"success": false, "message": "安装二进制失败", "log": err.Error()})
+		return
 	}
 	os.Chmod(dstBinary, 0755)
 
@@ -1564,12 +1550,9 @@ func handleCrispASRUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		if strings.HasPrefix(filepath.Base(path), "crispasr") {
 			dstAux := filepath.Join(binaryDir, filepath.Base(path))
-			srcF, _ := os.Open(path)
-			defer srcF.Close()
-			dstF, _ := os.OpenFile(dstAux, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
-			defer dstF.Close()
-			io.Copy(dstF, srcF)
-			os.Chmod(dstAux, 0755)
+			if err := copyFile(path, dstAux); err == nil {
+				os.Chmod(dstAux, 0755)
+			}
 		}
 		return nil
 	})
@@ -1600,15 +1583,18 @@ func handleCrispASRUpdate(w http.ResponseWriter, r *http.Request) {
 		// Service exists — update ExecStart if needed
 		updated := reExecStart.ReplaceAllString(string(content), "ExecStart="+execStart)
 		if updated != string(content) {
-			if err := os.WriteFile(serviceFile, []byte(updated), 0644); err != nil {
-				log.Printf("UPDATE: Failed to update service file: %v", err)
+			tmpSvc := serviceFile + ".tmp"
+			if err := os.WriteFile(tmpSvc, []byte(updated), 0644); err != nil {
+				log.Printf("UPDATE: Failed to write service temp file: %v", err)
+			} else if err := exec.Command("sudo", "mv", tmpSvc, serviceFile).Run(); err != nil {
+				log.Printf("UPDATE: Failed to move service file: %v", err)
 			} else {
 				exec.Command("sudo", "systemctl", "daemon-reload").Run()
 				log.Printf("UPDATE: Updated ExecStart in %s", serviceFile)
 			}
 		}
 	} else {
-		// Service file doesn't exist — create it
+		// Service file doesn't exist — create it via temp file + sudo mv
 		serviceContent := fmt.Sprintf(`[Unit]
 Description=CrispASR TTS Server
 After=network.target
@@ -1627,8 +1613,11 @@ StandardError=journal
 WantedBy=multi-user.target
 `, runUser, cfg.CrispASRDir, execStart)
 
-		if err := os.WriteFile(serviceFile, []byte(serviceContent), 0644); err != nil {
-			log.Printf("UPDATE: Failed to write service file: %v", err)
+		tmpSvc := serviceFile + ".tmp"
+		if err := os.WriteFile(tmpSvc, []byte(serviceContent), 0644); err != nil {
+			log.Printf("UPDATE: Failed to write service temp file: %v", err)
+		} else if err := exec.Command("sudo", "mv", tmpSvc, serviceFile).Run(); err != nil {
+			log.Printf("UPDATE: Failed to move service file: %v", err)
 		} else {
 			exec.Command("sudo", "systemctl", "daemon-reload").Run()
 			exec.Command("sudo", "systemctl", "enable", "crispasr").Run()
@@ -1652,6 +1641,22 @@ WantedBy=multi-user.target
 		"version": newVer,
 		"log":     fmt.Sprintf("下载: %s\n平台: linux/%s (%s)\n安装到: %s", asset, arch, gpuBackend, dstBinary),
 	})
+}
+
+// copyFile copies a file from src to dst, creating or overwriting dst.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(out, in)
+	out.Close()
+	return err
 }
 
 func handleResumable(w http.ResponseWriter, r *http.Request) {

@@ -9,7 +9,7 @@
 - 🎙️ **多角色语音合成** — 9 种内置音色 + 自定义语音克隆
 - 📝 **智能文本分割** — 自动分句，支持内联角色标签和标记语法
 - 🔄 **断点续传** — 生成失败可从断点恢复，无需重新合成已完成片段
-- 🔄 **一键更新** — 从 GitHub 下载最新 CrispASR，自动检测平台架构
+- 🔄 **一键安装/更新** — Web 界面直接安装或更新 CrispASR，自动检测平台架构
 - 🧪 **试听预览** — 全量生成前可单独试听每个片段
 - 📊 **批量合成 & 音色对比** — 多文本多音色一键生成
 - 🔄 **模型切换** — 7 种后端：Qwen3-TTS、Kokoro、CosyVoice3、Chatterbox
@@ -125,7 +125,7 @@ TTS_PASSWORD=your_password CRISPASR_DIR=/opt/crispasr \
 
 ## 性能对比
 
-| 指标 | Python (v0.9.3) | Go (v1.1.0) |
+| 指标 | Python (v0.9.3) | Go (v1.3.0) |
 |------|-----------------|-------------|
 | 代码行数 | 3,895 | 1,486 |
 | 后端文件 | 12 `.py` | 1 `.go` |
@@ -211,7 +211,7 @@ sudo apt update && sudo apt install -y curl git
 curl -fsSL https://raw.githubusercontent.com/yzy806806/crispasr-webui/main/install.sh | sudo bash
 ```
 
-CrispASR 本体的更新可在 Web 界面中点击「一键更新」按钮。
+CrispASR 本体的安装和更新均可在 Web 界面中点击「安装/更新」按钮完成。未安装时按钮显示为"安装 CrispASR x.x.x"，已安装时显示"更新到 x.x.x"。
 </details>
 
 <details>

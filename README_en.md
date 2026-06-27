@@ -17,7 +17,7 @@ A lightweight web UI for [CrispASR](https://github.com/CrispStrobe/CrispASR) TTS
 - 🔐 Password authentication with JWT
 - ⚡ CrispASR auto start/stop — starts on demand, stops when idle to save memory
 - 📦 Single static binary — no Python, no pip, no venv
-- 🔄 Resumable tasks & one-click CrispASR updates
+- 🔄 Resumable tasks & one-click CrispASR install & update
 
 ## Quick Start
 
@@ -125,7 +125,7 @@ Open http://localhost:8888
 
 ## Performance
 
-| Metric | Python (v0.9.3) | Go (v1.1.0) |
+| Metric | Python (v0.9.3) | Go (v1.3.0) |
 |--------|-----------------|-------------|
 | Total lines | 3,895 | 1,486 |
 | Backend files | 12 `.py` | 1 `.go` |
@@ -143,6 +143,9 @@ Open http://localhost:8888
 | `CRISPASR_DATA_DIR` | `./tts_data` | Data directory (DB, audio, uploads) |
 | `TTS_PORT` | `8888` | HTTP port |
 | `JWT_SECRET` | *(auto-generated & persisted)* | JWT signing key |
+| `CRISPASR_AUTOSTART` | `1` | Auto start/stop CrispASR (`1`=on, `0`=off) |
+| `CRISPASR_IDLE_TIMEOUT` | `300` | Seconds of idle before auto-stopping CrispASR (min 60) |
+| `CRISPASR_PORT` | `8080` | CrispASR service port (for health checks) |
 
 ## Supported Platforms
 
@@ -208,7 +211,7 @@ Re-run the installer — it automatically pulls the latest code and rebuilds:
 curl -fsSL https://raw.githubusercontent.com/yzy806806/crispasr-webui/main/install.sh | sudo bash
 ```
 
-CrispASR engine updates are available via the "One-click Update" button in the Web UI.
+CrispASR engine install and updates are available via the "Install/Update" button in the Web UI. When not installed, the button shows "Install CrispASR x.x.x"; when installed, it shows "Update to x.x.x".
 </details>
 
 ## License
