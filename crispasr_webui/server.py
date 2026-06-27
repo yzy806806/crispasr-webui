@@ -27,14 +27,9 @@ def main():
         args.password = uuid.uuid4().hex[:8]
         print(f"   Auto-generated temporary password: {args.password}")
 
-    # Paths
-    if args.data_dir:
-        config.set_data_dir(args.data_dir)
-    if args.crispasr_dir:
-        config.set_crispasr_dir(args.crispasr_dir)
-
-    if not config.JWT_SECRET:
-        config.set_jwt_secret(uuid.uuid4().hex + uuid.uuid4().hex)
+    # Initialize config (always call init to set up cfg)
+    jwt_secret = os.environ.get("JWT_SECRET", "") or uuid.uuid4().hex + uuid.uuid4().hex
+    config.init(data_dir=args.data_dir, crispasr_dir=args.crispasr_dir, jwt_secret=jwt_secret)
 
     database.init_db()
 

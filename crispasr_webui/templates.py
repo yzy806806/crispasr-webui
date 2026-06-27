@@ -26,12 +26,6 @@ def _load_html() -> str:
     return _CACHED_HTML
 
 
-def reload_html() -> None:
-    """Force reload HTML from disk (useful after updates)."""
-    global _CACHED_HTML
-    _CACHED_HTML = None
-
-
 # Backward-compatible: handlers.py does `templates.HTML_PAGE`
 # Use __getattr__ for module-level lazy attribute
 def __getattr__(name: str):

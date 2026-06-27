@@ -11,7 +11,6 @@ import platform
 import re
 import shutil
 import subprocess
-import sys
 import tarfile
 import tempfile
 import threading
@@ -77,20 +76,6 @@ def has_systemd() -> bool:
 
 
 # ─── Version helpers ────────────────────────────────────────
-
-def get_latest_tag(src_dir) -> str:
-    """Get the latest git tag from a source directory (kept for backward compat)."""
-    try:
-        result = subprocess.run(
-            ["git", "-C", str(src_dir), "tag", "--sort=-v:refname"],
-            capture_output=True, text=True, timeout=10,
-        )
-        for line in result.stdout.splitlines():
-            if line.startswith("v") and re.match(r'v\d+\.\d+\.\d+', line):
-                return line.strip()
-    except Exception:
-        pass
-    return "main"
 
 
 def get_crispasr_version() -> str:
@@ -351,11 +336,10 @@ def switch_model(model_key: str) -> dict:
 
             time.sleep(3)
 
-            conn = database.db_conn()
-            conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
-                         ("current_model", model_key))
-            conn.commit()
-            conn.close()
+            with database.DBCtx() as conn:
+                conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+                             ("current_model", model_key))
+                conn.commit()
 
             return {"success": True, "message": f"Switched to {model_info['description']}", "model": model_key}
         except Exception as e:

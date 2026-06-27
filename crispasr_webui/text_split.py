@@ -147,21 +147,3 @@ def _split_raw(text: str, max_chars: int = 120) -> list[str]:
             for i in range(0, len(c), max_chars):
                 final.append(c[i:i + max_chars])
     return final if final else [text]
-
-
-def text_to_markup(chunks_config: list[dict], global_voice: str = "", global_instruct: str = "") -> str:
-    """Convert chunks_config back to markup text for the editor.
-    Only emits markup when different from global settings."""
-    parts = []
-    for chunk in chunks_config:
-        voice = chunk.get("voice", "")
-        instruct = chunk.get("instruct", "")
-        text = chunk.get("text", "")
-
-        prefix = ""
-        if voice and voice != global_voice:
-            prefix += f"[{voice}]"
-        if instruct and instruct != global_instruct:
-            prefix += f"{{{instruct}}}"
-        parts.append(prefix + text)
-    return " ".join(parts)

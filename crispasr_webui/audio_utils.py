@@ -2,13 +2,10 @@
 """
 CrispASR TTS Web UI v0.9 — Audio Utilities
 WAV duration, format conversion.
-Imports: stdlib + config
 """
 
 import subprocess
 import wave
-
-from . import config
 
 
 def wav_duration(path: str) -> float:

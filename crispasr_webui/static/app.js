@@ -17,7 +17,6 @@ async function apiFetch(url, opts = {}) {
   const token = getToken();
   const headers = opts.headers || {};
   if (token) headers['Authorization'] = 'Bearer ' + token;
-  // Only set Content-Type for non-FormData bodies (browser sets multipart boundary automatically)
   if (opts.body && !(opts.body instanceof FormData)) {
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';
   }
@@ -26,6 +25,76 @@ async function apiFetch(url, opts = {}) {
   return resp;
 }
 
+// ─── Shared Helpers ───────────────────
+
+/** Append token to a URL for auth'd media access */
+function authUrl(url) {
+  const sep = url.includes('?') ? '&' : '?';
+  return url + sep + 'token=' + encodeURIComponent(getToken());
+}
+
+/** Play audio URL and show result card */
+function playAudioUrl(url, showCard = true) {
+  const player = document.getElementById('audioPlayer');
+  player.src = url;
+  player.play().catch(() => {});
+  if (showCard) document.getElementById('resultCard').classList.add('show');
+}
+
+/** Trigger a file download */
+function triggerDownload(url, filename) {
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+}
+
+/** Set active voice in the grid by name */
+function selectVoiceByName(name) {
+  selectedVoice = name;
+  document.querySelectorAll('.voice-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent.replace('🎤 ', '') === name);
+  });
+}
+
+/** Read current synthesis params from the UI */
+function getSynthParams() {
+  return {
+    voice: selectedVoice,
+    instruct: document.getElementById('instructInput').value.trim(),
+    speed: parseFloat(document.getElementById('speedSelect').value),
+    fmt: document.getElementById('formatSelect').value,
+  };
+}
+
+/** Apply synthesis params to the UI */
+function setSynthParams({instruct, speed, fmt}) {
+  if (instruct) document.getElementById('instructInput').value = instruct;
+  if (speed) document.getElementById('speedSelect').value = speed;
+  if (fmt) document.getElementById('formatSelect').value = fmt;
+}
+
+/** Reset the generate button to idle state */
+function resetGenerateBtn() {
+  const btn = document.getElementById('generateBtn');
+  btn.disabled = false;
+  btn.textContent = '生成语音';
+}
+
+/** Generic task poller — resolves when done/error/timeout */
+async function pollTask(taskId, { onDone, onError, onProgress, maxAttempts = 300, interval = 2000 } = {}) {
+  for (let i = 0; i < maxAttempts; i++) {
+    await new Promise(r => setTimeout(r, interval));
+    try {
+      const resp = await apiFetch(`/api/task/${encodeURIComponent(taskId)}`);
+      const d = await resp.json();
+      if (d.status === 'done') return onDone?.(d);
+      if (d.status === 'error') return onError?.(d);
+      onProgress?.(d);
+    } catch (e) { /* network hiccup, retry */ }
+  }
+  return onError?.({ error: '超时' });
+}
+
+// ─── Login ────────────────────────────
 async function doLogin() {
   const pwd = document.getElementById('loginPassword').value;
   const errEl = document.getElementById('loginError');
@@ -56,19 +125,14 @@ function doLogout() {
 }
 
 async function checkAuth() {
-  const token = getToken();
-  if (!token) return false;
-  try {
-    const resp = await fetch('/api/check', {headers:{'Authorization':'Bearer '+token}});
-    return resp.ok;
-  } catch { return false; }
+  if (!getToken()) return false;
+  try { return (await apiFetch('/api/check')).ok; } catch { return false; }
 }
 
 function showApp() {
   document.getElementById('loginPage').style.display = 'none';
   document.getElementById('appPage').style.display = 'block';
   loadModelInfo();
-  // History/Status/Logs loaded on-demand when user navigates to those panels
 }
 
 // ─── Model ────────────────────────────
@@ -94,17 +158,12 @@ function renderVoices() {
   
   voices.forEach(v => {
     const btn = document.createElement('div');
-    btn.className = 'voice-btn' + (v===selectedVoice?' active':'');
+    btn.className = 'voice-btn' + (v === selectedVoice ? ' active' : '');
     btn.textContent = v;
-    btn.onclick = () => {
-      grid.querySelectorAll('.voice-btn').forEach(b=>b.classList.remove('active'));
-      btn.classList.add('active');
-      selectedVoice = v;
-    };
+    btn.onclick = () => selectVoiceByName(v);
     grid.appendChild(btn);
   });
   
-  // If selected voice not in list, reset to first
   if (!voices.includes(selectedVoice) && voices.length) {
     selectedVoice = voices[0];
     grid.querySelector('.voice-btn').classList.add('active');
@@ -184,7 +243,7 @@ async function doUpdate() {
     if (data.success) {
       statusEl.textContent = '✅ ' + data.message;
       loadModelInfo();
-      checkUpdate();  // Refresh version info after update
+      checkUpdate();
     } else {
       statusEl.textContent = '❌ ' + data.message;
     }
@@ -201,11 +260,9 @@ async function init() {
   if (await checkAuth()) showApp();
   document.getElementById('textInput').addEventListener('input', function(){
     document.getElementById('charCount').textContent = this.value.length + '字';
-    // Invalidate chunk preview when text changes
     chunksConfig = [];
     document.getElementById('chunkPreview').classList.remove('show');
   });
-  // Drag & drop upload
   const zone = document.getElementById('uploadZone');
   zone.ondragover = e => { e.preventDefault(); zone.style.borderColor='var(--accent)'; };
   zone.ondragleave = () => { zone.style.borderColor=''; };
@@ -216,9 +273,7 @@ async function init() {
       uploadRefAudio();
     }
   };
-  // Check for resumable tasks
   checkResumable();
-  // Load presets
   loadPresets();
 }
 
@@ -227,7 +282,7 @@ function toggleMarkupHint() {
   document.getElementById('markupHint').classList.toggle('show');
 }
 
-// ─── Chunk Preview with Per-Chunk Controls ────
+// ─── Chunk Preview ────────────────────
 async function previewChunks() {
   const text = document.getElementById('textInput').value.trim();
   if (!text) return;
@@ -258,7 +313,6 @@ function renderChunks() {
     const effectiveVoice = c.voice || globalVoice;
     const effectiveInstruct = c.instruct || globalInstruct;
     
-    // Voice badge
     let voiceBadge = '';
     if (c.voice && c.voice !== globalVoice) {
       voiceBadge = `<span style="color:var(--accent2);font-size:11px;background:rgba(99,102,241,.15);padding:1px 6px;border-radius:4px;margin-left:4px">🎤 ${c.voice}</span>`;
@@ -293,8 +347,7 @@ function escHtml(s) { const d=document.createElement('div'); d.textContent=s; re
 function escAttr(s) { return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/'/g,'&#39;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function toggleChunkExpand(i) {
-  const item = document.querySelector(`.chunk-item[data-index="${i}"]`);
-  item.classList.toggle('expanded');
+  document.querySelector(`.chunk-item[data-index="${i}"]`).classList.toggle('expanded');
 }
 
 function expandAllChunks() {
@@ -324,11 +377,7 @@ async function auditionChunk(i) {
     });
     if (!resp.ok) throw new Error('试听失败');
     const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const player = document.getElementById('audioPlayer');
-    player.src = url;
-    player.play().catch(()=>{});
-    document.getElementById('resultCard').classList.add('show');
+    playAudioUrl(URL.createObjectURL(blob));
   } catch(e) { alert('试听失败: ' + e.message); }
 }
 
@@ -374,18 +423,15 @@ async function generate() {
   document.getElementById('progressFill').style.width = '0%';
   document.getElementById('progressText').textContent = '提交任务...';
 
-  const instruct = document.getElementById('instructInput').value.trim();
-  const speed = parseFloat(document.getElementById('speedSelect').value);
-  const fmt = document.getElementById('formatSelect').value;
-  currentFmt = fmt;
+  const params = getSynthParams();
+  currentFmt = params.fmt;
 
-  // Use chunksConfig if available, otherwise let backend split
   const body = {
     text,
-    voice: selectedVoice,
-    instruct,
-    speed,
-    fmt,
+    voice: params.voice,
+    instruct: params.instruct,
+    speed: params.speed,
+    fmt: params.fmt,
     chunks_config: chunksConfig.length ? chunksConfig : null,
   };
 
@@ -398,7 +444,6 @@ async function generate() {
     if (!data.task_id) throw new Error(data.error || '创建任务失败');
     taskId = data.task_id;
     
-    // Show queue info
     if (data.queue_pos > 0) {
       document.getElementById('queueInfo').style.display = 'block';
       document.getElementById('queueInfo').textContent = `队列中第 ${data.queue_pos} 位`;
@@ -409,22 +454,19 @@ async function generate() {
     pollProgress();
   } catch(e) {
     document.getElementById('progressText').textContent = '❌ ' + e.message;
-    btn.disabled = false;
-    btn.textContent = '生成语音';
+    resetGenerateBtn();
   }
 }
 
 function pollProgress() {
   if (pollTimer) clearInterval(pollTimer);
-  let pollAttempts = 0;
-  const maxAttempts = 300; // 300 * 2s = 10 min timeout
+  let attempts = 0;
   pollTimer = setInterval(async () => {
-    pollAttempts++;
-    if (pollAttempts > maxAttempts) {
+    attempts++;
+    if (attempts > 300) {
       clearInterval(pollTimer);
       document.getElementById('progressText').textContent = '⏰ 生成超时，请重试';
-      document.getElementById('generateBtn').disabled = false;
-      document.getElementById('generateBtn').textContent = '生成语音';
+      resetGenerateBtn();
       return;
     }
     try {
@@ -444,15 +486,13 @@ function pollProgress() {
         fill.style.width = '100%';
         ptxt.textContent = '✅ 生成完成';
         showResult(data.audio_url, data.duration);
-        document.getElementById('generateBtn').disabled = false;
-        document.getElementById('generateBtn').textContent = '生成语音';
+        resetGenerateBtn();
         document.getElementById('queueInfo').style.display = 'none';
         loadHistory();
       } else if (data.status === 'error') {
         clearInterval(pollTimer);
         ptxt.textContent = '❌ ' + (data.error || '生成失败');
-        document.getElementById('generateBtn').disabled = false;
-        document.getElementById('generateBtn').textContent = '生成语音';
+        resetGenerateBtn();
         document.getElementById('queueInfo').style.display = 'none';
       }
     } catch(e) { console.error(e); }
@@ -460,23 +500,15 @@ function pollProgress() {
 }
 
 function showResult(audioUrl, duration) {
-  const token = getToken();
-  const sep = audioUrl.includes('?') ? '&' : '?';
-  currentAudioUrl = audioUrl + sep + 'token=' + encodeURIComponent(token);
-  const player = document.getElementById('audioPlayer');
-  player.src = currentAudioUrl;
-  player.play().catch(()=>{});
+  currentAudioUrl = authUrl(audioUrl);
+  playAudioUrl(currentAudioUrl);
   const dur = duration ? duration.toFixed(1) + '秒' : '';
   document.getElementById('resultMeta').textContent = dur ? `时长: ${dur}` : '';
-  document.getElementById('resultCard').classList.add('show');
 }
 
 function downloadAudio() {
   if (!currentAudioUrl) return;
-  const a = document.createElement('a');
-  a.href = currentAudioUrl;
-  a.download = `tts_${selectedVoice}_${Date.now()}.${currentFmt}`;
-  a.click();
+  triggerDownload(currentAudioUrl, `tts_${selectedVoice}_${Date.now()}.${currentFmt}`);
 }
 
 // ─── Voice Clone ──────────────────────
@@ -492,12 +524,7 @@ async function uploadRefAudio() {
   form.append('name', file.name.replace(/\.[^.]+$/, ''));
 
   try {
-    const token = getToken();
-    const resp = await fetch('/api/voices', {
-      method: 'POST',
-      headers: {'Authorization': 'Bearer '+token},
-      body: form,
-    });
+    const resp = await apiFetch('/api/voices', { method: 'POST', body: form });
     const data = await resp.json();
     if (data.name) {
       uploadedVoice = data.name;
@@ -505,14 +532,9 @@ async function uploadRefAudio() {
       const btn = document.createElement('div');
       btn.className = 'voice-btn active';
       btn.textContent = '🎤 ' + data.name;
-      grid.querySelectorAll('.voice-btn').forEach(b=>b.classList.remove('active'));
-      btn.onclick = () => {
-        grid.querySelectorAll('.voice-btn').forEach(b=>b.classList.remove('active'));
-        btn.classList.add('active');
-        selectedVoice = data.name;
-      };
+      btn.onclick = () => selectVoiceByName(data.name);
       grid.prepend(btn);
-      selectedVoice = data.name;
+      selectVoiceByName(data.name);
     }
   } catch(e) {
     alert('上传失败: ' + e.message);
@@ -546,27 +568,19 @@ async function loadVoiceList() {
 }
 
 function playVoice(filename) {
-  const token = getToken();
-  const a = new Audio('/uploads/' + encodeURIComponent(filename) + '?token=' + token);
+  const a = new Audio(authUrl('/uploads/' + encodeURIComponent(filename)));
   a.play().catch(e => alert('播放失败: ' + e.message));
 }
 
 function selectVoice(name) {
-  selectedVoice = name;
-  const grid = document.getElementById('voiceGrid');
-  grid.querySelectorAll('.voice-btn').forEach(b => {
-    b.classList.remove('active');
-    if (b.textContent.replace('🎤 ','') === name) b.classList.add('active');
-  });
+  selectVoiceByName(name);
 }
 
 async function deleteVoice(name) {
   if (!confirm(`确定删除参考音频 "${name}"？`)) return;
   try {
     await apiFetch(`/api/voices/${encodeURIComponent(name)}`, {method:'DELETE'});
-    // Remove from voice grid
-    const grid = document.getElementById('voiceGrid');
-    grid.querySelectorAll('.voice-btn').forEach(b => {
+    document.querySelectorAll('.voice-btn').forEach(b => {
       if (b.textContent.replace('🎤 ','') === name) b.remove();
     });
     if (selectedVoice === name) selectedVoice = 'serena';
@@ -592,8 +606,7 @@ async function startRecording() {
       form.append('audio', blob, `rec_${ts}.webm`);
       form.append('name', `rec_${ts}`);
       try {
-        const token = getToken();
-        const resp = await fetch('/api/voices', {method:'POST', headers:{'Authorization':'Bearer '+token}, body:form});
+        const resp = await apiFetch('/api/voices', {method:'POST', body:form});
         const data = await resp.json();
         if (data.name) {
           uploadedVoice = data.name;
@@ -645,18 +658,16 @@ async function startCompare() {
   document.getElementById('compareStatus').textContent = '正在合成...';
 
   try {
+    const params = getSynthParams();
     const resp = await apiFetch('/api/compare', {
       method: 'POST',
       body: JSON.stringify({
-        voice_a: voiceA, voice_b: voiceB, text: text,
-        speed: parseFloat(document.getElementById('speedSelect').value),
-        fmt: document.getElementById('formatSelect').value,
-        instruct: document.getElementById('instructInput').value.trim(),
+        voice_a: voiceA, voice_b: voiceB, text,
+        speed: params.speed, fmt: params.fmt, instruct: params.instruct,
       }),
     });
     const data = await resp.json();
     if (data.error) { alert(data.error); return; }
-    // Poll both tasks (await so button stays disabled during polling)
     await pollCompareTasks(data.task_a, data.task_b);
   } catch(e) {
     alert('对比请求失败: ' + e.message);
@@ -666,49 +677,25 @@ async function startCompare() {
 
 async function pollCompareTasks(taskIdA, taskIdB) {
   const statusEl = document.getElementById('compareStatus');
-  let doneA = false, doneB = false;
-  const maxAttempts = 150; // 150 * 2s = 5 min timeout
-  let attempts = 0;
+  let cnt = 0;
 
-  while ((!doneA || !doneB) && attempts < maxAttempts) {
-    await new Promise(r => setTimeout(r, 2000));
-    attempts++;
-    if (!doneA) {
-      try {
-        const r = await apiFetch(`/api/task/${taskIdA}`);
-        const d = await r.json();
-        if (d.status === 'done' && d.audio_url) {
-          doneA = true;
-          const token = getToken();
-          document.getElementById('compareAudioA').src = d.audio_url + (d.audio_url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
-        } else if (d.status === 'error') {
-          doneA = true;
-          statusEl.textContent = 'A 合成失败: ' + (d.error || '未知错误');
-        }
-      } catch(e) {}
-    }
-    if (!doneB) {
-      try {
-        const r = await apiFetch(`/api/task/${taskIdB}`);
-        const d = await r.json();
-        if (d.status === 'done' && d.audio_url) {
-          doneB = true;
-          const token = getToken();
-          document.getElementById('compareAudioB').src = d.audio_url + (d.audio_url.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(token);
-        } else if (d.status === 'error') {
-          doneB = true;
-          statusEl.textContent = 'B 合成失败: ' + (d.error || '未知错误');
-        }
-      } catch(e) {}
-    }
-    const cnt = (doneA ? 1 : 0) + (doneB ? 1 : 0);
-    statusEl.textContent = `合成中... ${cnt}/2 完成`;
-  }
-  if (attempts >= maxAttempts && (!doneA || !doneB)) {
-    statusEl.textContent = '⏰ 对比超时，请重试';
-  } else {
-    statusEl.textContent = '对比完成！点击播放试听';
-  }
+  const pollOne = async (id, audioElId, label) => {
+    await pollTask(id, {
+      onDone: d => {
+        cnt++;
+        if (d.audio_url) document.getElementById(audioElId).src = authUrl(d.audio_url);
+      },
+      onError: d => {
+        cnt++;
+        statusEl.textContent = `${label} 合成失败: ${d.error || '未知错误'}`;
+      },
+      onProgress: () => { statusEl.textContent = `合成中... ${cnt}/2 完成`; },
+      maxAttempts: 150,
+    });
+  };
+
+  await Promise.all([pollOne(taskIdA, 'compareAudioA', 'A'), pollOne(taskIdB, 'compareAudioB', 'B')]);
+  statusEl.textContent = cnt >= 2 ? '对比完成！点击播放试听' : '⏰ 对比超时';
   document.getElementById('compareBtn').disabled = false;
 }
 
@@ -732,21 +719,21 @@ async function startBatch() {
   document.getElementById('batchProgress').style.display = '';
 
   try {
+    const params = getSynthParams();
     const resp = await apiFetch('/api/batch', {
       method: 'POST',
       body: JSON.stringify({
         texts: lines,
-        voice: selectedVoice,
-        speed: parseFloat(document.getElementById('speedSelect').value),
-        fmt: document.getElementById('formatSelect').value,
-        instruct: document.getElementById('instructInput').value.trim(),
+        voice: params.voice,
+        speed: params.speed,
+        fmt: params.fmt,
+        instruct: params.instruct,
       }),
     });
     const data = await resp.json();
     if (data.error) { alert(data.error); return; }
     batchTaskIds = data.task_ids;
     batchPollAttempts = 0;
-    // Render items
     const el = document.getElementById('batchItems');
     el.innerHTML = batchTaskIds.map((id, i) =>
       `<div class="batch-item" data-batch-id="${escAttr(id)}">
@@ -754,8 +741,7 @@ async function startBatch() {
         <span class="batch-item-status" data-batch-id="${escAttr(id)}">⏳</span>
       </div>`
     ).join('');
-    // Start polling
-    pollBatchTasks();  // async timer-based, button re-enabled when all done
+    pollBatchTasks();
   } catch(e) {
     alert('批量提交失败: ' + e.message);
     document.getElementById('batchBtn').disabled = false;
@@ -767,7 +753,7 @@ async function pollBatchTasks() {
   const total = batchTaskIds.length;
 
   batchPollAttempts++;
-  if (batchPollAttempts > 300) { // 300 * 2s = 10 min
+  if (batchPollAttempts > 300) {
     document.getElementById('batchCount').textContent = '⏰ 批量超时';
     document.getElementById('batchBtn').disabled = false;
     return;
@@ -841,7 +827,6 @@ async function loadHistory() {
     const total = data.total || 0;
     const list = document.getElementById('historyList');
 
-    // Update footer
     document.getElementById('historyCount').textContent = `共 ${total} 条`;
     document.getElementById('historyPageInfo').textContent = `${data.page}/${historyPages}`;
     document.getElementById('historyPrev').disabled = data.page <= 1;
@@ -925,39 +910,21 @@ async function regenerateFromHistory(id) {
     const resp = await apiFetch(`/api/history/${encodeURIComponent(id)}`);
     if (!resp.ok) { alert('记录不存在'); return; }
     const item = await resp.json();
-    // Switch to synthesize panel and fill in
     switchNav('synthesize');
     document.getElementById('textInput').value = item.text;
     document.getElementById('charCount').textContent = item.text.length + '字';
-    // Set voice
-    const voiceBtns = document.querySelectorAll('.voice-btn');
-    voiceBtns.forEach(b => {
-      b.classList.remove('active');
-      if (b.textContent.replace('🎤 ','') === item.voice) {
-        b.classList.add('active');
-        selectedVoice = item.voice;
-      }
-    });
-    if (item.instruct) document.getElementById('instructInput').value = item.instruct;
-    if (item.speed) document.getElementById('speedSelect').value = item.speed;
+    selectVoiceByName(item.voice);
+    setSynthParams({instruct: item.instruct, speed: item.speed});
   } catch(e) { alert('加载失败: ' + e.message); }
 }
 
 function downloadHistoryAudio(audioFile, id) {
-  const token = getToken();
-  const url = `/api/audio/${audioFile}?token=${encodeURIComponent(token)}`;
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `tts_${id}.wav`;
-  a.click();
+  triggerDownload(authUrl(`/api/audio/${audioFile}`), `tts_${id}.wav`);
 }
 
 async function playHistory(audioFile) {
-  const token = getToken();
-  currentAudioUrl = `/api/audio/${audioFile}?token=${encodeURIComponent(token)}`;
-  document.getElementById('audioPlayer').src = currentAudioUrl;
-  document.getElementById('audioPlayer').play().catch(()=>{});
-  document.getElementById('resultCard').classList.add('show');
+  currentAudioUrl = authUrl(`/api/audio/${audioFile}`);
+  playAudioUrl(currentAudioUrl);
 }
 
 async function clearHistory() {
@@ -975,31 +942,26 @@ async function loadStatus() {
     const resp = await apiFetch('/api/status');
     const s = await resp.json();
 
-    // CrispASR
     const el = document.getElementById('statusCrispasr');
     el.textContent = s.crispasr.active ? '运行中' : '已停止';
     el.className = 'status-value ' + (s.crispasr.active ? 'status-on' : 'status-off');
     document.getElementById('statusCrispasrDetail').textContent = s.crispasr.pid ? `PID ${s.crispasr.pid}` : '';
 
-    // Queue
     const qd = s.queue.depth;
     document.getElementById('statusQueue').textContent = qd;
     document.getElementById('statusQueueDetail').textContent = s.queue.active ? '处理中...' : '空闲';
 
-    // CPU
     const cpuPct = s.cpu.percent;
     document.getElementById('statusCpu').textContent = cpuPct + '%';
     document.getElementById('statusCpuBar').style.width = cpuPct + '%';
     document.getElementById('statusCpuBar').style.background = cpuPct > 80 ? '#ef4444' : cpuPct > 50 ? '#f59e0b' : 'var(--accent)';
 
-    // Memory
     const memPct = s.memory.percent;
     document.getElementById('statusMem').textContent = memPct + '%';
     document.getElementById('statusMemBar').style.width = memPct + '%';
     document.getElementById('statusMemBar').style.background = memPct > 85 ? '#ef4444' : '#f59e0b';
     document.getElementById('statusMemDetail').textContent = `${s.memory.used_mb} / ${s.memory.total_mb} MB`;
 
-    // Disk
     const dskPct = s.disk.disk_percent;
     document.getElementById('statusDisk').textContent = `${s.disk.disk_used_gb} / ${s.disk.disk_total_gb} GB (${dskPct}%)`;
     document.getElementById('statusDiskBar').style.width = dskPct + '%';
@@ -1061,14 +1023,16 @@ function stopLogsRefresh() {
 }
 
 // ─── Presets ──────────────────────────
+let _presetsCache = [];
+
 async function loadPresets() {
   try {
     const resp = await apiFetch('/api/presets');
-    const presets = await resp.json();
+    _presetsCache = await resp.json();
     const sel = document.getElementById('presetSelect');
     const current = sel.value;
     sel.innerHTML = '<option value="">— 选择预设 —</option>';
-    presets.forEach(p => {
+    _presetsCache.forEach(p => {
       const opt = document.createElement('option');
       opt.value = p.name;
       opt.textContent = p.name + ' (' + p.voice + ')';
@@ -1081,39 +1045,20 @@ async function loadPresets() {
 async function loadPreset() {
   const name = document.getElementById('presetSelect').value;
   if (!name) return;
-  try {
-    const resp = await apiFetch('/api/presets');
-    const presets = await resp.json();
-    const p = presets.find(x => x.name === name);
-    if (!p) return;
-    // Apply voice
-    const voiceBtns = document.querySelectorAll('.voice-btn');
-    voiceBtns.forEach(b => {
-      b.classList.remove('active');
-      if (b.textContent.replace('🎤 ','') === p.voice) {
-        b.classList.add('active');
-        selectedVoice = p.voice;
-      }
-    });
-    if (p.instruct) document.getElementById('instructInput').value = p.instruct;
-    if (p.speed) document.getElementById('speedSelect').value = p.speed;
-    if (p.fmt) document.getElementById('formatSelect').value = p.fmt;
-  } catch(e) { alert('加载预设失败: ' + e.message); }
+  const p = _presetsCache.find(x => x.name === name);
+  if (!p) return;
+  selectVoiceByName(p.voice);
+  setSynthParams({instruct: p.instruct, speed: p.speed, fmt: p.fmt});
 }
 
 async function saveCurrentPreset() {
   const name = prompt('输入预设名称:');
   if (!name || !name.trim()) return;
   try {
+    const params = getSynthParams();
     await apiFetch('/api/presets', {
       method: 'POST',
-      body: JSON.stringify({
-        name: name.trim(),
-        voice: selectedVoice,
-        instruct: document.getElementById('instructInput').value.trim(),
-        speed: parseFloat(document.getElementById('speedSelect').value),
-        fmt: document.getElementById('formatSelect').value,
-      }),
+      body: JSON.stringify({ name: name.trim(), ...params }),
     });
     await loadPresets();
     document.getElementById('presetSelect').value = name.trim();
@@ -1133,18 +1078,15 @@ async function deleteCurrentPreset() {
 
 // ─── Navigation ───────────────────────
 let _currentPanel = 'synthesize';
-const _panelLoaded = new Set(['synthesize']);  // synthesize loads on showApp
+const _panelLoaded = new Set(['synthesize']);
 function switchNav(name) {
-  // Deactivate old panel + nav item
   const oldPanel = document.getElementById('panel' + _currentPanel.charAt(0).toUpperCase() + _currentPanel.slice(1));
   if (oldPanel) oldPanel.classList.remove('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
 
-  // Stop refreshers for old panel
   if (_currentPanel === 'status') stopStatusRefresh();
   if (_currentPanel === 'logs') stopLogsRefresh();
 
-  // Activate new panel + nav item
   const newPanel = document.getElementById('panel' + name.charAt(0).toUpperCase() + name.slice(1));
   if (!newPanel) { console.warn('Panel not found:', name); return; }
   newPanel.classList.add('active');
@@ -1152,7 +1094,6 @@ function switchNav(name) {
   if (navItem) navItem.classList.add('active');
   _currentPanel = name;
 
-  // Load data on first visit only
   if (!_panelLoaded.has(name)) {
     _panelLoaded.add(name);
     if (name === 'history') loadHistory();
@@ -1160,15 +1101,10 @@ function switchNav(name) {
     if (name === 'clone') loadVoiceList();
     if (name === 'compare') loadCompareVoices();
   }
-  // Always start refreshers for real-time panels
   if (name === 'status') startStatusRefresh();
   if (name === 'logs') startLogsRefresh();
-  // History refresh on revisit (data may have changed)
   if (name === 'history' && _panelLoaded.has(name)) loadHistory();
 }
-
-// Backward compat: toggleSection redirects to switchNav
-function toggleSection(name) { switchNav(name); }
 
 // ─── Boot ─────────────────────────────
 init();

@@ -2,7 +2,6 @@
 """
 CrispASR TTS Web UI v0.9 — Task Queue
 Background TTS generation with queue, position tracking, resume support.
-Imports: config, database, audio_utils, text_split
 """
 
 import json
@@ -15,7 +14,6 @@ import urllib.request
 from . import config
 from . import database
 from . import audio_utils
-# text_split imported lazily only if needed (currently not used here directly)
 
 
 # ─── Module-level state ─────────────────────────────────
@@ -221,15 +219,12 @@ def generate_task(task_id: str, chunks_config: list[dict], global_voice: str,
 
         # Update database
         audio_filename = os.path.basename(final_wav)
-        conn = database.db_conn()
-        try:
+        with database.DBCtx() as conn:
             conn.execute(
                 "UPDATE history SET status='done', audio_file=?, duration=?, finished_at=? WHERE id=?",
                 (audio_filename, total_duration, time.time(), task_id),
             )
             conn.commit()
-        finally:
-            conn.close()
 
         with _tasks_lock:
             _tasks[task_id]["status"] = "done"
@@ -241,13 +236,10 @@ def generate_task(task_id: str, chunks_config: list[dict], global_voice: str,
     except Exception as e:
         # On error, DON'T delete chunk files — allow resume
         try:
-            conn = database.db_conn()
-            try:
+            with database.DBCtx() as conn:
                 conn.execute("UPDATE history SET status='error', finished_at=? WHERE id=?", (time.time(), task_id))
                 conn.commit()
-            finally:
-                conn.close()
-        except:
+        except Exception:
             pass
         with _tasks_lock:
             _tasks[task_id]["status"] = "error"

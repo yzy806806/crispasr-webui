@@ -3,14 +3,12 @@
 Bottom-level module; no imports from other project modules.
 
 Usage:
-    - Before starting the server, call ``config.init(data_dir, crispasr_dir, jwt_secret)``
-      to build the frozen AppConfig.
-    - Access settings via ``config.cfg.<attr>`` (e.g. ``config.cfg.DATA_DIR``).
-    - For backward compatibility, module-level attributes are also updated at init time.
+    Call ``config.init(data_dir, crispasr_dir, jwt_secret)`` at startup.
+    Access settings via ``config.cfg.<attr>`` (e.g. ``config.cfg.DATA_DIR``).
 """
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -60,70 +58,39 @@ def init(data_dir: str | Path = "",
         CRISPASR_DIR=_crispasr_dir,
         JWT_SECRET=_jwt_secret,
     )
-
-    # ─── Backward-compatible module-level attributes ────
-    # Code that does ``from config import DATA_DIR`` will still work
-    # because we re-assign the module globals after init().
-    import sys
-    mod = sys.modules[__name__]
-    mod.DATA_DIR = cfg.DATA_DIR
-    mod.DB_PATH = cfg.DB_PATH
-    mod.AUDIO_DIR = cfg.AUDIO_DIR
-    mod.UPLOAD_DIR = cfg.UPLOAD_DIR
-    mod.CRISPASR_DIR = cfg.CRISPASR_DIR
-    mod.JWT_SECRET = cfg.JWT_SECRET
-    mod.JWT_EXPIRY = cfg.JWT_EXPIRY
-    mod.MAX_BODY = cfg.MAX_BODY
-    mod.MAX_UPLOAD_SIZE = cfg.MAX_UPLOAD_SIZE
-
     return cfg
 
 
-# ─── Default module-level values (used before init) ───────
-
-DATA_DIR: Path = Path(os.environ.get("CRISPASR_DATA_DIR", "")) or Path(__file__).parent.parent / "tts_data"
-DB_PATH: Path = DATA_DIR / "history.db"
-AUDIO_DIR: Path = DATA_DIR / "audio"
-UPLOAD_DIR: Path = DATA_DIR / "uploads"
-CRISPASR_DIR: Path = Path(os.environ.get("CRISPASR_DIR", str(Path(__file__).parent.parent)))
-JWT_SECRET: str = os.environ.get("JWT_SECRET", "")
-JWT_EXPIRY: int = 86400 * 7
-MAX_BODY: int = 10 * 1024 * 1024
-MAX_UPLOAD_SIZE: int = 10 * 1024 * 1024
-
-
-# ─── Backward-compatible setters (call init internally) ───
+# ─── Convenience accessors (used by server.py) ────────────
+# These forward to cfg so server.py can call set_data_dir() etc.
+# without knowing about init()'s full signature.
 
 def set_data_dir(data_dir: str | Path) -> None:
-    """Re-assign data paths. Calls init() to rebuild frozen config."""
-    current = cfg or AppConfig(
-        DATA_DIR=DATA_DIR, DB_PATH=DB_PATH, AUDIO_DIR=AUDIO_DIR,
-        UPLOAD_DIR=UPLOAD_DIR, CRISPASR_DIR=CRISPASR_DIR, JWT_SECRET=JWT_SECRET,
-    )
-    init(data_dir=data_dir, crispasr_dir=current.CRISPASR_DIR, jwt_secret=current.JWT_SECRET)
-
+    init(data_dir=data_dir,
+         crispasr_dir=cfg.CRISPASR_DIR if cfg else "",
+         jwt_secret=cfg.JWT_SECRET if cfg else "")
 
 def set_crispasr_dir(crispasr_dir: str | Path) -> None:
-    """Set CrispASR directory. Calls init() to rebuild frozen config."""
-    current = cfg or AppConfig(
-        DATA_DIR=DATA_DIR, DB_PATH=DB_PATH, AUDIO_DIR=AUDIO_DIR,
-        UPLOAD_DIR=UPLOAD_DIR, CRISPASR_DIR=CRISPASR_DIR, JWT_SECRET=JWT_SECRET,
-    )
-    init(data_dir=current.DATA_DIR, crispasr_dir=crispasr_dir, jwt_secret=current.JWT_SECRET)
-
+    init(data_dir=cfg.DATA_DIR if cfg else "",
+         crispasr_dir=crispasr_dir,
+         jwt_secret=cfg.JWT_SECRET if cfg else "")
 
 def set_jwt_secret(secret: str) -> None:
-    """Set JWT secret. Calls init() to rebuild frozen config."""
-    current = cfg or AppConfig(
-        DATA_DIR=DATA_DIR, DB_PATH=DB_PATH, AUDIO_DIR=AUDIO_DIR,
-        UPLOAD_DIR=UPLOAD_DIR, CRISPASR_DIR=CRISPASR_DIR, JWT_SECRET=JWT_SECRET,
-    )
-    init(data_dir=current.DATA_DIR, crispasr_dir=current.CRISPASR_DIR, jwt_secret=secret)
+    init(data_dir=cfg.DATA_DIR if cfg else "",
+         crispasr_dir=cfg.CRISPASR_DIR if cfg else "",
+         jwt_secret=secret)
+
+
+# ─── Module-level property access (config.DATA_DIR → cfg.DATA_DIR) ─
+
+def __getattr__(name: str):
+    """Transparently forward attribute access to the frozen config."""
+    if cfg is not None and name in cfg.__dataclass_fields__:
+        return getattr(cfg, name)
+    raise AttributeError(f"module 'config' has no attribute {name!r}")
 
 
 # ─── Model Registry ──────────────────────────────────────
-# Models that CrispASR supports for TTS
-# Each model defines: backend, gguf patterns, built-in voices, capabilities
 
 MODEL_REGISTRY: dict[str, dict] = {
     "qwen3-tts-customvoice-1.7b-f16": {
