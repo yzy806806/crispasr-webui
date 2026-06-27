@@ -36,7 +36,7 @@ const (
 	loginRateWindow = 5 * time.Minute
 	maxBatchItems = 20
 	minPasswordLen = 4
-	httpClientTimeout = 300 * time.Second
+	httpClientTimeout = 1800 * time.Second  // 30min — ARM Vulkan RTF~10x, 200字≈9min
 	maxAudioSize = 100 << 20 // 100MB safety cap for single TTS response
 	crispASRIdleTimeout = 5 * time.Minute // auto-stop crispasr after 5 min idle
 	crispASRStartWait   = 120 * time.Second // max wait for crispasr to become ready
