@@ -36,7 +36,7 @@ const (
 	loginRateWindow = 5 * time.Minute
 	maxBatchItems = 20
 	minPasswordLen = 4
-	httpClientTimeout = 120 * time.Second
+	httpClientTimeout = 300 * time.Second
 	maxAudioSize = 100 << 20 // 100MB safety cap for single TTS response
 	crispASRIdleTimeout = 5 * time.Minute // auto-stop crispasr after 5 min idle
 	crispASRStartWait   = 120 * time.Second // max wait for crispasr to become ready
@@ -451,9 +451,11 @@ func ensureCrispASRRunning() error {
 	log.Printf("AUTO: Starting CrispASR service...")
 	crispASRState = "starting"
 
-	if err := exec.Command("sudo", "systemctl", "start", "crispasr").Run(); err != nil {
+	// Try starting the service
+	startErr := exec.Command("sudo", "systemctl", "start", "crispasr").Run()
+	if startErr != nil {
 		crispASRState = "stopped"
-		return fmt.Errorf("systemctl start crispasr: %w", err)
+		return fmt.Errorf("CrispASR 未安装或启动失败，请在「更新」面板中安装 CrispASR (%w)", startErr)
 	}
 
 	crispASRMu.Unlock()
@@ -814,9 +816,10 @@ func handleSwitchModel(w http.ResponseWriter, r *http.Request) {
 func findCrispASR() string {
 	for _, p := range []string{
 		filepath.Join(cfg.CrispASRDir, "bin", "crispasr"),
+		filepath.Join(cfg.CrispASRDir, "build", "bin", "crispasr"),
 		filepath.Join(cfg.CrispASRDir, "crispasr"),
 	} {
-		if _, err := os.Stat(p); err == nil {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
 			return p
 		}
 	}
@@ -1363,7 +1366,49 @@ func handleBatch(w http.ResponseWriter, r *http.Request) {
 
 func handleCrispASRVersion(w http.ResponseWriter, r *http.Request) {
 	current := getCrispASRVersion()
-	sendJSON(w, 200, map[string]string{"current": current, "latest": current})
+	installed := findCrispASR() != "crispasr" // "crispasr" is the fallback when not found
+
+	latest := current
+	if installed {
+		// Check GitHub for latest release
+		if v := getLatestCrispASRVersion(); v != "" {
+			latest = v
+		}
+	} else {
+		// Not installed — always fetch latest
+		if v := getLatestCrispASRVersion(); v != "" {
+			latest = v
+			current = "未安装"
+		}
+	}
+
+	sendJSON(w, 200, map[string]any{
+		"current":   current,
+		"latest":    latest,
+		"installed": installed,
+	})
+}
+
+func getLatestCrispASRVersion() string {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Get("https://api.github.com/repos/CrispStrobe/CrispASR/releases/latest")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return ""
+	}
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if json.NewDecoder(resp.Body).Decode(&release) != nil {
+		return ""
+	}
+	if m := reSemVer.FindStringSubmatch(release.TagName); len(m) > 1 {
+		return m[1]
+	}
+	return ""
 }
 
 func getCrispASRVersion() string {
@@ -1379,17 +1424,234 @@ func getCrispASRVersion() string {
 }
 
 func handleCrispASRUpdate(w http.ResponseWriter, r *http.Request) {
-	updateScript := filepath.Join(cfg.CrispASRDir, "update.sh")
-	if _, err := os.Stat(updateScript); err != nil {
-		sendJSON(w, 400, map[string]string{"error": "未找到更新脚本", "hint": "在 CRISPASR_DIR 下放置 update.sh"})
-		return
+	// ── Step 1: Detect platform ──────────────────────────────
+	arch := "x86_64"
+	if a, _ := exec.Command("uname", "-m").Output(); len(a) > 0 {
+		a := strings.TrimSpace(string(a))
+		if a == "aarch64" || a == "arm64" {
+			arch = "arm64"
+		}
 	}
-	out, err := exec.Command("/bin/bash", updateScript).CombinedOutput()
+
+	// Detect GPU
+	gpuBackend := "cpu"
+	if out, _ := exec.Command("nvidia-smi").CombinedOutput(); len(out) > 0 {
+		gpuBackend = "cuda"
+	} else if out, _ := exec.Command("vulkaninfo").CombinedOutput(); len(out) > 0 {
+		gpuBackend = "vulkan"
+	}
+
+	// Build asset name
+	asset := fmt.Sprintf("crispasr-linux-%s", arch)
+	if gpuBackend == "cuda" {
+		asset = fmt.Sprintf("crispasr-linux-%s-cuda", arch)
+	} else if gpuBackend == "vulkan" {
+		asset = fmt.Sprintf("crispasr-linux-%s-vulkan", arch)
+	}
+	asset += ".tar.gz"
+
+	// ── Step 2: Get latest release tag ───────────────────────
+	latestTag := ""
+	{
+		client := &http.Client{Timeout: 15 * time.Second}
+		resp, err := client.Get("https://api.github.com/repos/CrispStrobe/CrispASR/releases/latest")
+		if err != nil {
+			sendJSON(w, 500, map[string]any{"success": false, "message": "无法连接 GitHub", "log": err.Error()})
+			return
+		}
+		defer resp.Body.Close()
+		var release struct {
+			TagName string `json:"tag_name"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&release) != nil || release.TagName == "" {
+			sendJSON(w, 500, map[string]any{"success": false, "message": "无法获取最新版本", "log": "empty tag_name"})
+			return
+		}
+		latestTag = release.TagName
+	}
+
+	downloadURL := fmt.Sprintf("https://github.com/CrispStrobe/CrispASR/releases/download/%s/%s", latestTag, asset)
+	binaryDir := filepath.Join(cfg.CrispASRDir, "bin")
+
+	// ── Step 3: Download ─────────────────────────────────────
+	tmpDir, err := os.MkdirTemp("", "crispasr-update-*")
 	if err != nil {
-		sendJSON(w, 500, map[string]any{"success": false, "message": "更新失败", "log": string(out)})
+		sendJSON(w, 500, map[string]any{"success": false, "message": "创建临时目录失败", "log": err.Error()})
 		return
 	}
-	sendJSON(w, 200, map[string]any{"success": true, "message": "更新完成", "log": string(out)})
+	defer os.RemoveAll(tmpDir)
+
+	archivePath := filepath.Join(tmpDir, asset)
+	log.Printf("UPDATE: Downloading %s ...", downloadURL)
+
+	dlResp, err := http.Get(downloadURL)
+	if err != nil {
+		sendJSON(w, 500, map[string]any{"success": false, "message": "下载失败", "log": err.Error()})
+		return
+	}
+	defer dlResp.Body.Close()
+	if dlResp.StatusCode != 200 {
+		sendJSON(w, 500, map[string]any{"success": false, "message": "下载失败: HTTP " + fmt.Sprint(dlResp.StatusCode), "log": downloadURL})
+		return
+	}
+
+	f, err := os.Create(archivePath)
+	if err != nil {
+		sendJSON(w, 500, map[string]any{"success": false, "message": "写入临时文件失败", "log": err.Error()})
+		return
+	}
+	if _, err := io.Copy(f, dlResp.Body); err != nil {
+		f.Close()
+		sendJSON(w, 500, map[string]any{"success": false, "message": "下载写入失败", "log": err.Error()})
+		return
+	}
+	f.Close()
+
+	log.Printf("UPDATE: Download complete, extracting...")
+
+	// ── Step 4: Extract ──────────────────────────────────────
+	if err := exec.Command("tar", "xzf", archivePath, "-C", tmpDir).Run(); err != nil {
+		sendJSON(w, 500, map[string]any{"success": false, "message": "解压失败", "log": err.Error()})
+		return
+	}
+
+	// Find the crispasr binary
+	binarySrc := ""
+	filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || filepath.Base(path) != "crispasr" {
+			return nil
+		}
+		binarySrc = path
+		return io.EOF
+	})
+	if binarySrc == "" {
+		sendJSON(w, 500, map[string]any{"success": false, "message": "归档中未找到 crispasr 二进制", "log": asset})
+		return
+	}
+
+	// ── Step 5: Install binary ───────────────────────────────
+	os.MkdirAll(binaryDir, 0755)
+
+	// Stop crispasr service if running (so we can replace the binary)
+	exec.Command("sudo", "systemctl", "stop", "crispasr").Run()
+
+	dstBinary := filepath.Join(binaryDir, "crispasr")
+	if err := os.Rename(binarySrc, dstBinary); err != nil {
+		// Cross-device rename — copy instead
+		src, err := os.Open(binarySrc)
+		if err != nil {
+			sendJSON(w, 500, map[string]any{"success": false, "message": "复制二进制失败", "log": err.Error()})
+			return
+		}
+		defer src.Close()
+		dst, err := os.OpenFile(dstBinary, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+		if err != nil {
+			sendJSON(w, 500, map[string]any{"success": false, "message": "写入二进制失败", "log": err.Error()})
+			return
+		}
+		defer dst.Close()
+		if _, err := io.Copy(dst, src); err != nil {
+			sendJSON(w, 500, map[string]any{"success": false, "message": "写入二进制失败", "log": err.Error()})
+			return
+		}
+	}
+	os.Chmod(dstBinary, 0755)
+
+	// Copy auxiliary binaries (crispasr-quantize, etc.)
+	filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || path == binarySrc {
+			return nil
+		}
+		if strings.HasPrefix(filepath.Base(path), "crispasr") {
+			dstAux := filepath.Join(binaryDir, filepath.Base(path))
+			srcF, _ := os.Open(path)
+			defer srcF.Close()
+			dstF, _ := os.OpenFile(dstAux, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+			defer dstF.Close()
+			io.Copy(dstF, srcF)
+			os.Chmod(dstAux, 0755)
+		}
+		return nil
+	})
+
+	// ── Step 6: Write or update systemd service ─────────────
+	serviceFile := "/etc/systemd/system/crispasr.service"
+	threads := 1
+	if n, _ := exec.Command("nproc").Output(); len(n) > 0 {
+		if t, _ := strconv.Atoi(strings.TrimSpace(string(n))); t > 2 {
+			threads = t / 2
+		}
+	}
+	gpuFlags := ""
+	if gpuBackend == "cuda" {
+		gpuFlags = " --gpu-backend cuda"
+	} else if gpuBackend == "vulkan" {
+		gpuFlags = " --gpu-backend vulkan"
+	}
+	runUser := os.Getenv("USER")
+	if runUser == "" {
+		runUser = "root"
+	}
+
+	execStart := fmt.Sprintf("%s --server --backend qwen3-tts-customvoice -m qwen3-tts-1.7b-customvoice --voice-dir %s/voices --host 127.0.0.1 --port %s -t %d%s",
+		dstBinary, cfg.CrispASRDir, cfg.CrispASRPort, threads, gpuFlags)
+
+	if content, err := os.ReadFile(serviceFile); err == nil {
+		// Service exists — update ExecStart if needed
+		updated := reExecStart.ReplaceAllString(string(content), "ExecStart="+execStart)
+		if updated != string(content) {
+			if err := os.WriteFile(serviceFile, []byte(updated), 0644); err != nil {
+				log.Printf("UPDATE: Failed to update service file: %v", err)
+			} else {
+				exec.Command("sudo", "systemctl", "daemon-reload").Run()
+				log.Printf("UPDATE: Updated ExecStart in %s", serviceFile)
+			}
+		}
+	} else {
+		// Service file doesn't exist — create it
+		serviceContent := fmt.Sprintf(`[Unit]
+Description=CrispASR TTS Server
+After=network.target
+
+[Service]
+Type=simple
+User=%s
+WorkingDirectory=%s
+ExecStart=%s
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+`, runUser, cfg.CrispASRDir, execStart)
+
+		if err := os.WriteFile(serviceFile, []byte(serviceContent), 0644); err != nil {
+			log.Printf("UPDATE: Failed to write service file: %v", err)
+		} else {
+			exec.Command("sudo", "systemctl", "daemon-reload").Run()
+			exec.Command("sudo", "systemctl", "enable", "crispasr").Run()
+			log.Printf("UPDATE: Created %s", serviceFile)
+		}
+	}
+
+	// ── Step 7: Start service ────────────────────────────────
+	if err := exec.Command("sudo", "systemctl", "start", "crispasr").Run(); err != nil {
+		sendJSON(w, 500, map[string]any{"success": false, "message": "安装完成但启动失败", "log": err.Error()})
+		return
+	}
+
+	newVer := getCrispASRVersion()
+	msg := fmt.Sprintf("CrispASR %s 安装/更新完成", newVer)
+	log.Printf("UPDATE: %s", msg)
+
+	sendJSON(w, 200, map[string]any{
+		"success": true,
+		"message": msg,
+		"version": newVer,
+		"log":     fmt.Sprintf("下载: %s\n平台: linux/%s (%s)\n安装到: %s", asset, arch, gpuBackend, dstBinary),
+	})
 }
 
 func handleResumable(w http.ResponseWriter, r *http.Request) {

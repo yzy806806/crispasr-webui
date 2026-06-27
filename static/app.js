@@ -266,14 +266,22 @@ async function checkUpdate() {
   try {
     const resp = await apiFetch('/api/crispasr/version');
     const data = await resp.json();
-    el.textContent = `当前: ${data.current} | 最新: ${data.latest || '检查失败'}`;
     const btn = document.getElementById('updateBtn');
-    if (data.latest && data.latest !== data.current) {
+    if (!data.installed) {
+      el.textContent = `未安装 | 最新: ${data.latest || '未知'}`;
+      btn.disabled = false;
+      btn.textContent = `安装 CrispASR ${data.latest || ''}`;
+      btn.className = 'btn-warn';
+    } else if (data.latest && data.latest !== data.current) {
+      el.textContent = `当前: ${data.current} | 最新: ${data.latest}`;
       btn.disabled = false;
       btn.textContent = `更新到 ${data.latest}`;
-    } else if (data.latest === data.current) {
+      btn.className = 'btn-warn';
+    } else {
+      el.textContent = `当前: ${data.current} | 已是最新`;
       btn.disabled = true;
       btn.textContent = '已是最新';
+      btn.className = 'btn-secondary';
     }
   } catch(e) { el.textContent = '检查失败'; }
 }
@@ -282,10 +290,11 @@ async function doUpdate() {
   const btn = document.getElementById('updateBtn');
   const statusEl = document.getElementById('updateStatus');
   const logEl = document.getElementById('updateLog');
+  const isInstall = btn.textContent.includes('安装');
   btn.disabled = true;
-  statusEl.innerHTML = '<span class="spinner"></span>更新中...';
+  statusEl.innerHTML = `<span class="spinner"></span>${isInstall ? '下载安装中' : '更新中'}...`;
   logEl.style.display = 'block';
-  logEl.textContent = '开始更新...';
+  logEl.textContent = isInstall ? '正在下载 CrispASR...' : '开始更新...';
   
   try {
     const resp = await apiFetch('/api/crispasr/update', { method: 'POST' });
@@ -303,7 +312,6 @@ async function doUpdate() {
     logEl.textContent = e.message;
   }
   btn.disabled = false;
-  btn.textContent = '更新并编译';
 }
 
 // ─── Init ─────────────────────────────
