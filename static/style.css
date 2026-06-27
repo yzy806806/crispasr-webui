@@ -204,6 +204,6 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .modal-card h3{margin:0 0 16px;font-size:16px}
 .modal-card .form-group{margin-bottom:12px}
 .modal-card .form-group label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
-.modal-card .form-group input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:14px;box-sizing:border-box}
+.modal-card .form-group input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:14px;box-sizing:border-box}
 .modal-card .form-group input:focus{outline:none;border-color:var(--accent)}
-.modal-card .error-msg{color:var(--err);font-size:13px;margin-top:8px}
+.modal-card .error-msg{color:var(--error);font-size:13px;margin-top:8px}
