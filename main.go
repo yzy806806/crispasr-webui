@@ -182,6 +182,53 @@ var (
 	loginLog  = map[string][]time.Time{}
 )
 
+func handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		OldPassword string `json:"old_password"`
+		NewPassword string `json:"new_password"`
+	}
+	if readJSON(r, &body) != nil {
+		sendJSON(w, 400, map[string]string{"error": "无效请求"})
+		return
+	}
+	if !hmac.Equal([]byte(body.OldPassword), []byte(cfg.Password)) {
+		sendJSON(w, 401, map[string]string{"error": "原密码错误"})
+		return
+	}
+	if len(body.NewPassword) < 4 {
+		sendJSON(w, 400, map[string]string{"error": "新密码至少4位"})
+		return
+	}
+	// Update in-memory
+	cfg.Password = body.NewPassword
+	// Persist to env file
+	envPath := envOr("TTS_ENV_FILE", "/etc/tts-webui.env")
+	writeEnvPassword(envPath, body.NewPassword)
+	sendJSON(w, 200, map[string]string{"message": "密码已修改"})
+}
+
+func writeEnvPassword(path, password string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		// Create new file
+		os.WriteFile(path, []byte("TTS_PASSWORD="+password+"\n"), 0644)
+		return
+	}
+	lines := strings.Split(string(data), "\n")
+	found := false
+	for i, line := range lines {
+		if strings.HasPrefix(line, "TTS_PASSWORD=") {
+			lines[i] = "TTS_PASSWORD=" + password
+			found = true
+			break
+		}
+	}
+	if !found {
+		lines = append(lines, "TTS_PASSWORD="+password)
+	}
+	os.WriteFile(path, []byte(strings.Join(lines, "\n")), 0644)
+}
+
 func handleLogin(w http.ResponseWriter, r *http.Request) {
 	ip := strings.Split(r.RemoteAddr, ":")[0]
 	loginMu.Lock()
@@ -1037,6 +1084,7 @@ func main() {
 	mux.HandleFunc("/api/history/", requireAuth(handleDeleteHistory))
 	mux.HandleFunc("/api/task/", requireAuth(handleTaskStatus))
 	mux.HandleFunc("/api/voices/", requireAuth(handleDeleteVoice))
+	mux.HandleFunc("/api/change-password", requireAuth(handleChangePassword))
 
 	// Audio serving (auth via header or ?token=)
 	audioDir := filepath.Join(cfg.DataDir, "audio")

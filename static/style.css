@@ -196,3 +196,14 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 ::-webkit-scrollbar-track{background:var(--bg)}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 ::-webkit-scrollbar-thumb:hover{background:var(--muted)}
+
+/* Modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100;align-items:center;justify-content:center}
+.modal-overlay.active{display:flex}
+.modal-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;width:380px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,.3)}
+.modal-card h3{margin:0 0 16px;font-size:16px}
+.modal-card .form-group{margin-bottom:12px}
+.modal-card .form-group label{display:block;font-size:13px;color:var(--muted);margin-bottom:4px}
+.modal-card .form-group input{width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--fg);font-size:14px;box-sizing:border-box}
+.modal-card .form-group input:focus{outline:none;border-color:var(--accent)}
+.modal-card .error-msg{color:var(--err);font-size:13px;margin-top:8px}

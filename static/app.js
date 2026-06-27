@@ -124,6 +124,57 @@ function doLogout() {
   document.getElementById('appPage').style.display = 'none';
 }
 
+function showChangePassword() {
+  document.getElementById('cpOldPw').value = '';
+  document.getElementById('cpNewPw').value = '';
+  document.getElementById('cpConfirmPw').value = '';
+  const err = document.getElementById('cpError');
+  err.style.display = 'none';
+  err.textContent = '';
+  document.getElementById('changePasswordModal').classList.add('active');
+}
+
+function closeChangePassword() {
+  document.getElementById('changePasswordModal').classList.remove('active');
+}
+
+async function submitChangePassword() {
+  const oldPw = document.getElementById('cpOldPw').value;
+  const newPw = document.getElementById('cpNewPw').value;
+  const confirmPw = document.getElementById('cpConfirmPw').value;
+  const err = document.getElementById('cpError');
+
+  if (!oldPw || !newPw || !confirmPw) {
+    err.textContent = '请填写所有字段'; err.style.display = 'block'; return;
+  }
+  if (newPw !== confirmPw) {
+    err.textContent = '两次新密码不一致'; err.style.display = 'block'; return;
+  }
+  if (newPw.length < 4) {
+    err.textContent = '新密码至少4位'; err.style.display = 'block'; return;
+  }
+
+  const btn = document.getElementById('cpSubmitBtn');
+  btn.disabled = true; btn.textContent = '修改中...';
+  try {
+    const resp = await apiFetch('/api/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ old_password: oldPw, new_password: newPw })
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      closeChangePassword();
+      alert('密码已修改，请重新登录');
+      doLogout();
+    } else {
+      err.textContent = data.error || '修改失败'; err.style.display = 'block';
+    }
+  } catch (e) {
+    err.textContent = '网络错误'; err.style.display = 'block';
+  }
+  btn.disabled = false; btn.textContent = '确认修改';
+}
+
 async function checkAuth() {
   if (!getToken()) return false;
   try { return (await apiFetch('/api/check')).ok; } catch { return false; }
