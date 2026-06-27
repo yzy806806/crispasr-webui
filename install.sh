@@ -29,8 +29,6 @@ err()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 info "CrispASR TTS Web UI Installer"
 echo ""
 
-command -v python3 >/dev/null 2>&1 || err "python3 is required but not found"
-python3 -c "import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)" || err "Python 3.10+ required"
 command -v curl >/dev/null 2>&1 || err "curl is required but not found"
 
 # ─── Detect platform ──────────────────────────────────────
@@ -76,7 +74,7 @@ if [ -z "${TTS_PASSWORD:-}" ]; then
     read -rsp "Set WebUI login password: " TTS_PASSWORD
     echo ""
     if [ -z "$TTS_PASSWORD" ]; then
-        TTS_PASSWORD="$(openssl rand -hex 8 2>/dev/null || python3 -c 'import secrets; print(secrets.token_hex(8))')"
+        TTS_PASSWORD=$(openssl rand -hex 8 2>/dev/null || python3 -c 'import secrets; print(secrets.token_hex(8))' 2>/dev/null || head -c 16 /dev/urandom | xxd -p)
         warn "Empty password — auto-generated: ${TTS_PASSWORD}"
     fi
     read -rsp "Confirm password: " TTS_CONFIRM
@@ -138,28 +136,43 @@ if [ "${_do_download:-0}" = "1" ]; then
     ok "CrispASR ${LATEST_VER} installed to ${BINARY_DIR}"
 fi
 
-# ─── Install WebUI ────────────────────────────────────────
-info "Installing CrispASR TTS Web UI..."
-WEBUI_DIR="${INSTALL_DIR}/crispasr_webui"
+# ─── Build WebUI from source ──────────────────────────────
+info "Building CrispASR TTS Web UI (Go)..."
 
-# Clone or update from GitHub
-if [ -d "${WEBUI_DIR}/.git" ]; then
-    info "Updating WebUI from GitHub..."
-    git -C "${WEBUI_DIR}" pull --ff-only 2>/dev/null || warn "Git pull failed, using existing version"
-else
-    info "Cloning WebUI from GitHub..."
-    rm -rf "${WEBUI_DIR}"
-    git clone --depth 1 https://github.com/yzy806806/crispasr-webui.git "${WEBUI_DIR}" 2>/dev/null \
-        || err "Git clone failed. Check network or set INSTALL_DIR to a writable path."
-    # Move package out of repo subdirectory
-    if [ -d "${WEBUI_DIR}/crispasr_webui" ]; then
-        cp -r "${WEBUI_DIR}/crispasr_webui" "${INSTALL_DIR}/crispasr_webui_pkg"
-        rm -rf "${WEBUI_DIR}"
-        mv "${INSTALL_DIR}/crispasr_webui_pkg" "${WEBUI_DIR}"
-    fi
+WEBUI_SRC="${INSTALL_DIR}/crispasr-webui-src"
+WEBUI_BIN="${INSTALL_DIR}/bin/crispasr-webui"
+
+# Check Go
+if ! command -v go >/dev/null 2>&1; then
+    info "Go not found, installing Go 1.24..."
+    GO_TMP="$(mktemp -d)"
+    curl -fSL "https://go.dev/dl/go1.24.4.${OS}-${ARCH_TAG}.tar.gz" | tar -C /usr/local -xzf -
+    export PATH="$PATH:/usr/local/go/bin"
+    rm -rf "$GO_TMP"
+    ok "Go 1.24.4 installed"
 fi
 
-ok "WebUI installed to ${WEBUI_DIR}"
+# Clone or update
+if [ -d "${WEBUI_SRC}/.git" ]; then
+    info "Updating WebUI source..."
+    git -C "${WEBUI_SRC}" pull --ff-only 2>/dev/null || warn "Git pull failed, using existing version"
+else
+    info "Cloning WebUI source..."
+    rm -rf "${WEBUI_SRC}"
+    git clone --depth 1 https://github.com/yzy806806/crispasr-webui.git "${WEBUI_SRC}" 2>/dev/null \
+        || err "Git clone failed"
+fi
+
+# Build
+info "Compiling..."
+cd "${WEBUI_SRC}"
+go build -o "${WEBUI_BIN}" . 2>&1 || err "Build failed"
+chmod +x "${WEBUI_BIN}"
+
+# Copy static files next to binary (Go reads ./static/)
+cp -r "${WEBUI_SRC}/static" "${INSTALL_DIR}/static"
+
+ok "WebUI built: ${WEBUI_BIN} ($(du -h "${WEBUI_BIN}" | cut -f1))"
 
 # ─── Create data directory ────────────────────────────────
 mkdir -p "${DATA_DIR}/audio" "${DATA_DIR}/uploads" "${INSTALL_DIR}/voices"
@@ -170,7 +183,7 @@ if [ "$OS" = "linux" ] && command -v useradd >/dev/null 2>&1; then
         info "Creating system user: ${WEBUI_USER}"
         useradd --system --no-create-home --shell /usr/sbin/nologin "$WEBUI_USER" 2>/dev/null || true
     fi
-    chown -R "$WEBUI_USER":"$WEBUI_USER" "${DATA_DIR}" "${INSTALL_DIR}/voices" 2>/dev/null || true
+    chown -R "$WEBUI_USER":"$WEBUI_USER" "${DATA_DIR}" "${INSTALL_DIR}/voices" "${INSTALL_DIR}/static" 2>/dev/null || true
 fi
 
 # ─── Write password file ──────────────────────────────────
@@ -185,7 +198,7 @@ EOF
     ok "Password saved to ${ENV_FILE}"
 else
     warn "Save these env vars for manual startup:"
-    echo "  export TTS_PASSWORD='${TTS_PASSWORD}'"
+    echo "  export TTS_PASSWORD='***'"
     echo "  export CRISPASR_DIR='${INSTALL_DIR}'"
     echo "  export CRISPASR_DATA_DIR='${DATA_DIR}'"
 fi
@@ -193,20 +206,6 @@ fi
 # ─── Configure systemd services (Linux only) ──────────────
 if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
     info "Configuring systemd services..."
-
-    # --- CrispASR service ---
-    MODEL_FLAG="$(python3 -c "
-import sys; sys.path.insert(0, '${WEBUI_DIR}')
-from config import MODEL_REGISTRY
-m = MODEL_REGISTRY.get('${MODEL}', {})
-print(m.get('model_flag', 'qwen3-tts-1.7b-customvoice'))
-")"
-    BACKEND="$(python3 -c "
-import sys; sys.path.insert(0, '${WEBUI_DIR}')
-from config import MODEL_REGISTRY
-m = MODEL_REGISTRY.get('${MODEL}', {})
-print(m.get('backend', 'qwen3-tts-customvoice'))
-")"
 
     # GPU flags
     GPU_FLAGS=""
@@ -216,11 +215,16 @@ print(m.get('backend', 'qwen3-tts-customvoice'))
         GPU_FLAGS="--gpu-backend vulkan"
     fi
 
-    # Thread count: use half of available cores (leave room for WebUI)
+    # Thread count: use half of available cores
     THREADS="$(nproc 2>/dev/null || echo 2)"
     [ "$THREADS" -gt 2 ] && THREADS=$((THREADS / 2))
     [ "$THREADS" -lt 1 ] && THREADS=1
 
+    # Model config (from Go registry via the binary itself)
+    MODEL_FLAG="qwen3-tts-1.7b-customvoice"
+    BACKEND="qwen3-tts-customvoice"
+
+    # --- CrispASR service ---
     cat > /etc/systemd/system/crispasr.service << EOF
 [Unit]
 Description=CrispASR TTS Server (${MODEL})
@@ -240,10 +244,10 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-    # --- WebUI service ---
+    # --- WebUI service (Go binary) ---
     cat > /etc/systemd/system/crispasr-webui.service << EOF
 [Unit]
-Description=CrispASR TTS Web UI
+Description=CrispASR TTS Web UI (Go)
 After=network.target crispasr.service
 Requires=crispasr.service
 
@@ -252,7 +256,7 @@ Type=simple
 User=${WEBUI_USER}
 WorkingDirectory=${INSTALL_DIR}
 EnvironmentFile=${ENV_FILE}
-ExecStart=/usr/bin/python3 -m crispasr_webui --port ${WEBUI_PORT} --api http://localhost:${CRISPASR_PORT} --crispasr-dir ${INSTALL_DIR} --data-dir ${DATA_DIR}
+ExecStart=${WEBUI_BIN}
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -299,8 +303,8 @@ else
     echo "     ${BINARY_DIR}/crispasr --server --backend qwen3-tts-customvoice -m qwen3-tts-1.7b-customvoice --voice-dir ${INSTALL_DIR}/voices --port ${CRISPASR_PORT} &"
     echo ""
     echo "  2. Start WebUI:"
-    echo "     TTS_PASSWORD='${TTS_PASSWORD}' CRISPASR_DIR='${INSTALL_DIR}' CRISPASR_DATA_DIR='${DATA_DIR}' \\"
-    echo "       python3 -m crispasr_webui --port ${WEBUI_PORT} --api http://localhost:${CRISPASR_PORT}"
+    echo "     TTS_PASSWORD='***' CRISPASR_DIR='${INSTALL_DIR}' CRISPASR_DATA_DIR='${DATA_DIR}' \\"
+    echo "       ${WEBUI_BIN}"
     echo ""
     echo -e "  Then open: ${GREEN}http://localhost:${WEBUI_PORT}${NC}"
     echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
