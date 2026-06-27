@@ -29,7 +29,13 @@ err()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 info "CrispASR TTS Web UI Installer"
 echo ""
 
+# Must run as root (systemd + /etc write + /usr/local install)
+if [ "$(id -u)" -ne 0 ]; then
+    err "This script must be run as root. Use: sudo bash install.sh"
+fi
+
 command -v curl >/dev/null 2>&1 || err "curl is required but not found"
+command -v git >/dev/null 2>&1 || err "git is required but not found"
 
 # ─── Detect platform ──────────────────────────────────────
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -74,7 +80,7 @@ if [ -z "${TTS_PASSWORD:-}" ]; then
     read -rsp "Set WebUI login password: " TTS_PASSWORD
     echo ""
     if [ -z "$TTS_PASSWORD" ]; then
-        TTS_PASSWORD=$(openssl rand -hex 8 2>/dev/null || python3 -c 'import secrets; print(secrets.token_hex(8))' 2>/dev/null || head -c 16 /dev/urandom | xxd -p)
+        TTS_PASSWORD=$(openssl rand -hex 8 2>/dev/null || head -c 16 /dev/urandom | od -A n -t x1 | tr -d ' \n' | head -c 16)
         warn "Empty password — auto-generated: ${TTS_PASSWORD}"
     fi
     read -rsp "Confirm password: " TTS_CONFIRM
@@ -85,7 +91,7 @@ fi
 # ─── Get latest CrispASR version ──────────────────────────
 info "Fetching latest CrispASR release..."
 LATEST_TAG="$(curl -sfL 'https://api.github.com/repos/CrispStrobe/CrispASR/releases/latest' \
-    | python3 -c 'import sys,json; print(json.load(sys.stdin).get("tag_name",""))' 2>/dev/null || true)"
+    | grep -o '"tag_name":"[^"]*"' | head -1 | sed 's/"tag_name":"//;s/"//')" || true
 
 if [ -z "$LATEST_TAG" ]; then
     err "Cannot fetch CrispASR release info. Check network connectivity."
@@ -98,7 +104,7 @@ DOWNLOAD_URL="https://github.com/CrispStrobe/CrispASR/releases/download/${LATEST
 BINARY_DIR="${INSTALL_DIR}/bin"
 
 if [ -f "${BINARY_DIR}/crispasr" ]; then
-    CURRENT_VER="$("${BINARY_DIR}/crispasr" --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1 || echo 'unknown')"
+    CURRENT_VER="$("${BINARY_DIR}/crispasr" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'unknown')"
     if [ "$CURRENT_VER" = "$LATEST_VER" ]; then
         ok "CrispASR ${CURRENT_VER} already installed, skipping download"
     else
