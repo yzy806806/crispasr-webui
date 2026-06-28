@@ -257,7 +257,7 @@ After=network.target crispasr.service
 Type=simple
 User=${WEBUI_USER}
 WorkingDirectory=${INSTALL_DIR}
-EnvironmentFile=${ENV_FILE}
+Environment="TTS_PASSWORD=***\nEnvironmentFile=${ENV_FILE}
 ExecStart=${WEBUI_BIN}
 Restart=on-failure
 RestartSec=5
