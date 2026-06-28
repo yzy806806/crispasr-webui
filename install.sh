@@ -189,7 +189,7 @@ CRISPASR_AUTOSTART=1
 CRISPASR_IDLE_TIMEOUT=300
 ENVEOF
     chmod 644 "$ENV_FILE"
-    ok "Config saved to ${ENV_FILE} (password stored in DB, default: 0086)"
+    ok "Config saved to ${ENV_FILE} (password stored in DB, default: 12345678)"
 else
     warn "Save these env vars for manual startup:"
     echo "  export CRISPASR_DIR='${INSTALL_DIR}'"
@@ -287,7 +287,7 @@ EOF
     echo -e "${CYAN}  🎙️  CrispASR TTS Web UI is ready!${NC}"
     echo ""
     echo -e "  URL:      ${GREEN}http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):${WEBUI_PORT}${NC}"
-    echo -e "  Password: 0086 (default, change in Settings)"
+    echo -e "  Password: 12345678 (default, change in Settings)"
     echo ""
     echo -e "  ${YELLOW}⚡ Auto start/stop enabled${NC} — CrispASR stops after 5 min idle, starts on demand"
     echo ""

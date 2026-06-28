@@ -35,7 +35,7 @@ const (
 	loginRateWindow = 5 * time.Minute
 	maxBatchItems = 20
 	minPasswordLen = 4
-	defaultPassword = "0086" // first-run default, persisted to DB on init
+	defaultPassword = "12345678" // first-run default, persisted to DB on init
 	httpClientTimeout = 1800 * time.Second  // 30min — ARM CPU RTF~10x, 200字≈9min
 	maxAudioSize = 100 << 20 // 100MB safety cap for single TTS response
 	crispASRIdleTimeout = 5 * time.Minute // auto-stop crispasr after 5 min idle
