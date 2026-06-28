@@ -818,9 +818,16 @@ func handleSwitchModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	binary := findCrispASR()
+	// Determine thread count
+	threads := 2
+	if n, _ := exec.Command("nproc").Output(); len(n) > 0 {
+		if t, _ := strconv.Atoi(strings.TrimSpace(string(n))); t > 2 {
+			threads = t / 2
+		}
+	}
 	cmdParts := []string{binary, "--server", "--backend", info.Backend, "-m", info.ModelFlag,
 		"--auto-download", "--voice-dir", filepath.Join(cfg.CrispASRDir, "voices"),
-		"--port", "8080", "--host", "127.0.0.1"}
+		"--port", "8080", "--host", "127.0.0.1", "-t", strconv.Itoa(threads)}
 
 	// Add quant flag if specified, or use model's default
 	quant := body.Quant
@@ -837,12 +844,6 @@ func handleSwitchModel(w http.ResponseWriter, r *http.Request) {
 	content, err := os.ReadFile(svcPath)
 	if err != nil {
 		// Service doesn't exist — create it
-		threads := 2
-		if n, _ := exec.Command("nproc").Output(); len(n) > 0 {
-			if t, _ := strconv.Atoi(strings.TrimSpace(string(n))); t > 2 {
-				threads = t / 2
-			}
-		}
 		svcContent := fmt.Sprintf(`[Unit]
 Description=CrispASR TTS Server
 After=network.target
