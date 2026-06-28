@@ -31,11 +31,11 @@ const (
 	wavHeaderSize = 44
 	splitThreshold = 800
 	maxTruncateLen = 2000
-	envFilePath   = "/etc/tts-webui.env"
 	loginRateLimit = 10
 	loginRateWindow = 5 * time.Minute
 	maxBatchItems = 20
 	minPasswordLen = 4
+	defaultPassword = "12345678" // first-run default, persisted to DB on init
 	httpClientTimeout = 1800 * time.Second  // 30min — ARM CPU RTF~10x, 200字≈9min
 	maxAudioSize = 100 << 20 // 100MB safety cap for single TTS response
 	crispASRIdleTimeout = 5 * time.Minute // auto-stop crispasr after 5 min idle
@@ -81,7 +81,7 @@ func initConfig() {
 		JWTSecret:     envOr("JWT_SECRET", ""),
 		JWTExpiry:     604800,
 		Port:          8888,
-		Password:      strings.TrimSpace(envOr("TTS_PASSWORD", "")),
+		Password:      defaultPassword, // loaded from DB in loadPassword() if exists
 		MaxBody:       10 << 20,
 		MaxUpload:     10 << 20,
 		AutoStartStop: envOr("CRISPASR_AUTOSTART", "1") == "1",
@@ -262,42 +262,8 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg.Password = body.NewPassword
-	envPath := envOr("TTS_ENV_FILE", envFilePath)
-	if err := writeEnvPassword(envPath, body.NewPassword); err != nil {
-		log.Printf("WARN: failed to persist password: %v", err)
-	}
+	dbSetSetting("password", body.NewPassword)
 	sendJSON(w, 200, map[string]string{"message": "密码已修改"})
-}
-
-// writeEnvPassword atomically writes the password to the env file
-func writeEnvPassword(path, password string) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		// Create new file atomically
-		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, []byte("TTS_PASSWORD="+password), 0644); err != nil {
-			return err
-		}
-		return os.Rename(tmp, path)
-	}
-	lines := strings.Split(string(data), "\n")
-	found := false
-	for i, line := range lines {
-		if strings.HasPrefix(line, "TTS_PASSWORD=") {
-			lines[i] = "TTS_PASSWORD=" + password
-			found = true
-			break
-		}
-	}
-	if !found {
-		lines = append(lines, "TTS_PASSWORD="+password)
-	}
-	tmp := path + ".tmp"
-	content := strings.TrimRight(strings.Join(lines, "\n"), "\n")
-	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
 }
 
 func handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -1792,18 +1758,7 @@ func safePath(baseDir, name string) string {
 func main() {
 	initConfig()
 
-	// Load password from env file
-	if cfg.Password == "" {
-		if data, err := os.ReadFile(envFilePath); err == nil {
-			for _, line := range strings.Split(string(data), "\n") {
-				if strings.HasPrefix(line, "TTS_PASSWORD=") {
-					cfg.Password = strings.TrimSpace(strings.TrimPrefix(line, "TTS_PASSWORD="))
-				}
-			}
-		}
-	}
-
-	// Generate or persist JWT secret
+	// Periodically clean up login rate-limit log
 	if cfg.JWTSecret == "" {
 		jwtPath := filepath.Join(cfg.DataDir, ".jwt_secret")
 		if data, err := os.ReadFile(jwtPath); err == nil && len(data) >= 32 {
@@ -1827,6 +1782,13 @@ func main() {
 
 	if err := initDB(); err != nil {
 		log.Fatal("DB init failed: ", err)
+	}
+
+	// Load password from DB (first run: persists default password)
+	if saved := dbSetting("password"); saved != "" {
+		cfg.Password = saved
+	} else {
+		dbSetSetting("password", defaultPassword)
 	}
 
 	// Initialize CrispASR state from current process reality
