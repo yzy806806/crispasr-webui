@@ -338,7 +338,7 @@ After=network.target
 Type=simple
 User=${WEBUI_USER}
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=${BINARY_DIR}/crispasr --server --backend ${BACKEND} -m ${MODEL_FLAG} --auto-download ${QUANT_FLAG} --voice-dir ${INSTALL_DIR}/voices --host 127.0.0.1 --port ${CRISPASR_PORT} -t ${THREADS} ${GPU_FLAGS}
+ExecStart=${BINARY_DIR}/crispasr --server --backend ${BACKEND} -m ${MODEL_FLAG} ${QUANT_FLAG} --voice-dir ${INSTALL_DIR}/voices --host 127.0.0.1 --port ${CRISPASR_PORT} -t ${THREADS} ${GPU_FLAGS}
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
@@ -379,30 +379,7 @@ EOF
 
     systemctl daemon-reload
     systemctl enable crispasr crispasr-webui
-    systemctl restart crispasr
-
-    # Wait for CrispASR to become ready (model download may take a while)
-    info "Waiting for CrispASR to start (model download may take several minutes)..."
-    _ready=0
-    for i in $(seq 1 120); do
-        if curl -sf "http://localhost:${CRISPASR_PORT}/health" >/dev/null 2>&1; then
-            _ready=1
-            break
-        fi
-        # Print progress every 10 seconds
-        [ $((i % 10)) -eq 0 ] && info "  still waiting... (${i}s)"
-        sleep 2
-    done
-
-    if [ "$_ready" = "0" ]; then
-        warn "CrispASR did not become ready within 4 minutes."
-        warn "Check: journalctl -u crispasr -f"
-        warn "You may need to wait for model download to complete, then: systemctl restart crispasr-webui"
-    else
-        ok "CrispASR is ready"
-    fi
-
-    systemctl restart crispasr-webui
+    systemctl start crispasr-webui
 
     # ─── Done ──────────────────────────────────────────
     echo ""
@@ -411,6 +388,10 @@ EOF
     echo ""
     echo -e "  URL:      ${GREEN}http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):${WEBUI_PORT}${NC}"
     echo -e "  Password: 12345678 (default, change in Settings)"
+    echo ""
+    echo -e "  ${YELLOW}📌 Next steps:${NC}"
+    echo -e "  1. Open WebUI → ${YELLOW}🔄 CrispASR 更新${NC} → 安装 CrispASR"
+    echo -e "  2. 然后去 ${YELLOW}🧠 模型选择${NC} 选模型和量化级别"
     echo ""
     echo -e "  ${YELLOW}⚡ Auto start/stop enabled${NC} — CrispASR stops after 5 min idle, starts on demand"
     echo ""
