@@ -189,7 +189,7 @@ ENV_FILE="/etc/tts-webui.env"
 if [ "$OS" = "linux" ]; then
     printf 'TTS_PASSWORD=%s\nCRISPASR_DIR=%s\nCRISPASR_DATA_DIR=%s\nCRISPASR_PORT=%s\nCRISPASR_AUTOSTART=1\nCRISPASR_IDLE_TIMEOUT=300\n' \
         "$TTS_PASSWORD" "$INSTALL_DIR" "$DATA_DIR" "$CRISPASR_PORT" > "$ENV_FILE"
-    chmod 600 "$ENV_FILE"
+    chmod 644 "$ENV_FILE"
     ok "Password saved to ${ENV_FILE}"
 else
     warn "Save these env vars for manual startup:"
