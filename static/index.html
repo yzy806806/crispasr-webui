@@ -308,18 +308,22 @@
           <div class="hint" style="margin-top:8px">切换模型会重启CrispASR服务，约10-20秒不可用</div>
         </div>
       </div>
-      <!-- Panel: Update -->
+      <!-- Panel: Settings -->
       <div class="panel" id="panelUpdate">
-        <h2>🔄 CrispASR 状态</h2>
+        <h2>⚙️ CrispASR 设置</h2>
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <label style="margin:0">版本信息</label>
             <span id="versionInfo" class="hint">检测中...</span>
           </div>
           <button class="btn-secondary" onclick="checkUpdate()">检查版本</button>
-          <div class="hint" style="margin-top:8px">
-            CrispASR 需自行安装。<br>
-            安装后请在下方配置路径。
+          <div style="margin-top:16px">
+            <label>CrispASR 二进制路径</label>
+            <input type="text" id="crispasrPath" placeholder="/opt/crispasr/bin/crispasr" style="width:100%">
+            <label style="margin-top:8px">端口</label>
+            <input type="text" id="crispasrPort" placeholder="8080" style="width:100%">
+            <button class="btn-primary" onclick="saveSettings()" style="margin-top:10px">保存设置</button>
+            <span id="settingsMsg" class="hint"></span>
           </div>
         </div>
       </div>

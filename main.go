@@ -836,21 +836,57 @@ func handleSwitchModel(w http.ResponseWriter, r *http.Request) {
 	svcPath := "/etc/systemd/system/crispasr.service"
 	content, err := os.ReadFile(svcPath)
 	if err != nil {
-		sendJSON(w, 400, map[string]string{"error": "需要systemd管理CrispASR", "cmd": execStart})
-		return
+		// Service doesn't exist — create it
+		threads := 2
+		if n, _ := exec.Command("nproc").Output(); len(n) > 0 {
+			if t, _ := strconv.Atoi(strings.TrimSpace(string(n))); t > 2 {
+				threads = t / 2
+			}
+		}
+		svcContent := fmt.Sprintf(`[Unit]
+Description=CrispASR TTS Server
+After=network.target
+
+[Service]
+Type=simple
+User=%s
+WorkingDirectory=%s
+ExecStart=%s
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+`, runUser(), cfg.CrispASRDir, execStart)
+
+		tmp := svcPath + ".tmp"
+		if err := os.WriteFile(tmp, []byte(svcContent), 0644); err != nil {
+			sendJSON(w, 500, map[string]string{"error": "创建服务文件失败: " + err.Error()})
+			return
+		}
+		if err := os.Rename(tmp, svcPath); err != nil {
+			sendJSON(w, 500, map[string]string{"error": "写入服务文件失败: " + err.Error()})
+			return
+		}
+		exec.Command("sudo", "systemctl", "daemon-reload").Run()
+		exec.Command("sudo", "systemctl", "enable", "crispasr").Run()
+	} else {
+		newContent := reExecStart.ReplaceAllString(string(content), "ExecStart="+execStart)
+		if newContent != string(content) {
+			tmp := svcPath + ".tmp"
+			if err := os.WriteFile(tmp, []byte(newContent), 0644); err != nil {
+				sendJSON(w, 500, map[string]string{"error": "写入服务文件失败"})
+				return
+			}
+			if err := os.Rename(tmp, svcPath); err != nil {
+				sendJSON(w, 500, map[string]string{"error": "更新服务文件失败"})
+				return
+			}
+			exec.Command("sudo", "systemctl", "daemon-reload").Run()
+		}
 	}
-	newContent := reExecStart.ReplaceAllString(string(content), "ExecStart="+execStart)
-	// Atomic write: temp file then rename
-	tmp := svcPath + ".tmp"
-	if err := os.WriteFile(tmp, []byte(newContent), 0644); err != nil {
-		sendJSON(w, 500, map[string]string{"error": "写入服务文件失败"})
-		return
-	}
-	if err := os.Rename(tmp, svcPath); err != nil {
-		sendJSON(w, 500, map[string]string{"error": "更新服务文件失败"})
-		return
-	}
-	exec.Command("sudo", "systemctl", "daemon-reload").Run()
 	exec.Command("sudo", "systemctl", "restart", "crispasr").Run()
 	dbSetSetting("current_model", body.Model)
 
@@ -862,6 +898,13 @@ func handleSwitchModel(w http.ResponseWriter, r *http.Request) {
 }
 
 func findCrispASR() string {
+	// 1. DB-configured path (set by user in Settings)
+	if p := dbSetting("crispasr_path"); p != "" {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p
+		}
+	}
+	// 2. Standard locations
 	for _, p := range []string{
 		filepath.Join(cfg.CrispASRDir, "bin", "crispasr"),
 		filepath.Join(cfg.CrispASRDir, "build", "bin", "crispasr"),
@@ -871,8 +914,16 @@ func findCrispASR() string {
 			return p
 		}
 	}
+	// 3. PATH
 	if p, _ := exec.LookPath("crispasr"); p != "" {
 		return p
+	}
+	return "crispasr"
+}
+
+func runUser() string {
+	if u := os.Getenv("USER"); u != "" {
+		return u
 	}
 	return "crispasr"
 }
@@ -1485,6 +1536,33 @@ func handleCrispASRCheck(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// ─── Settings API ──────────────────────────────────────
+
+func handleSettings(w http.ResponseWriter, r *http.Request) {
+	sendJSON(w, 200, map[string]any{
+		"crispasr_path": dbSetting("crispasr_path"),
+		"crispasr_port": dbSetting("crispasr_port"),
+	})
+}
+
+func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		CrispASRPath string `json:"crispasr_path"`
+		CrispASRPort string `json:"crispasr_port"`
+	}
+	if readJSON(r, &body) != nil {
+		sendJSON(w, 400, map[string]string{"error": "无效请求"})
+		return
+	}
+	if body.CrispASRPath != "" {
+		dbSetSetting("crispasr_path", body.CrispASRPath)
+	}
+	if body.CrispASRPort != "" {
+		dbSetSetting("crispasr_port", body.CrispASRPort)
+	}
+	sendJSON(w, 200, map[string]string{"message": "设置已保存"})
+}
+
 // copyFile copies a file from src to dst, creating or overwriting dst.
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
@@ -1707,6 +1785,8 @@ func main() {
 	mux.HandleFunc("/api/batch", requireAuth(handleBatch))
 	mux.HandleFunc("/api/crispasr/version", requireAuth(handleCrispASRVersion))
 	mux.HandleFunc("/api/crispasr/check", requireAuth(handleCrispASRCheck))
+	mux.HandleFunc("/api/settings", requireAuth(handleSettings))
+	mux.HandleFunc("/api/settings/save", requireAuth(handleSaveSettings))
 	mux.HandleFunc("/api/resumable", requireAuth(handleResumable))
 	mux.HandleFunc("/api/resume", requireAuth(handleResume))
 	mux.HandleFunc("/api/voices", requireAuth(handleVoices))

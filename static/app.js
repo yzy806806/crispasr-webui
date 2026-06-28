@@ -329,6 +329,32 @@ async function checkCrispASR() {
 // Keep old function name for panel init
 async function checkUpdate() { checkCrispASR(); }
 
+// ─── Settings ──────────────────────────
+async function loadSettings() {
+  try {
+    const resp = await apiFetch('/api/settings');
+    const data = await resp.json();
+    document.getElementById('crispasrPath').value = data.crispasr_path || '';
+    document.getElementById('crispasrPort').value = data.crispasr_port || '8080';
+  } catch(e) { console.error(e); }
+}
+
+async function saveSettings() {
+  const msg = document.getElementById('settingsMsg');
+  msg.textContent = '保存中...';
+  try {
+    const resp = await apiFetch('/api/settings/save', {
+      method: 'POST',
+      body: JSON.stringify({
+        crispasr_path: document.getElementById('crispasrPath').value,
+        crispasr_port: document.getElementById('crispasrPort').value,
+      }),
+    });
+    const data = await resp.json();
+    msg.textContent = data.error ? '❌ ' + data.error : '✅ ' + data.message;
+  } catch(e) { msg.textContent = '❌ 保存失败'; }
+}
+
 // ─── Init ─────────────────────────────
 async function init() {
   if (await checkAuth()) showApp();
@@ -1171,7 +1197,7 @@ function switchNav(name) {
   if (!_panelLoaded.has(name)) {
     _panelLoaded.add(name);
     if (name === 'history') loadHistory();
-    if (name === 'update') checkUpdate();
+    if (name === 'update') { checkUpdate(); loadSettings(); }
     if (name === 'clone') loadVoiceList();
     if (name === 'compare') loadCompareVoices();
   }
