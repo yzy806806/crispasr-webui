@@ -83,7 +83,7 @@ fi
 # ─── Get latest CrispASR version ──────────────────────────
 info "Fetching latest CrispASR release..."
 LATEST_TAG="$(curl -sfL 'https://api.github.com/repos/CrispStrobe/CrispASR/releases/latest' \
-    | grep -o '"tag_name":"[^"]*"' | head -1 | sed 's/"tag_name":"//;s/"//')" || true
+    | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"\([^"]*\)"$/\1/')" || true
 
 if [ -z "$LATEST_TAG" ]; then
     err "Cannot fetch CrispASR release info. Check network connectivity."
