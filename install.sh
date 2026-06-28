@@ -187,14 +187,14 @@ fi
 # ─── Write password file ──────────────────────────────────
 ENV_FILE="/etc/tts-webui.env"
 if [ "$OS" = "linux" ]; then
-    printf '%s\n' \
-        "TTS_PASSWORD=${TTS_PASSWORD}" \
-        "CRISPASR_DIR=${INSTALL_DIR}" \
-        "CRISPASR_DATA_DIR=${DATA_DIR}" \
-        "CRISPASR_PORT=${CRISPASR_PORT}" \
-        "CRISPASR_AUTOSTART=1" \
-        "CRISPASR_IDLE_TIMEOUT=300" \
-        > "$ENV_FILE"
+    cat > "$ENV_FILE" << 'ENVEOF'
+TTS_PASSWORD=${TTS_PASSWORD}
+CRISPASR_DIR=${INSTALL_DIR}
+CRISPASR_DATA_DIR=${DATA_DIR}
+CRISPASR_PORT=${CRISPASR_PORT}
+CRISPASR_AUTOSTART=1
+CRISPASR_IDLE_TIMEOUT=300
+ENVEOF
     chmod 644 "$ENV_FILE"
     ok "Password saved to ${ENV_FILE}"
 else
