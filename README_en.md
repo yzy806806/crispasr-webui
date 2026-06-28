@@ -34,16 +34,11 @@ The installer will:
 2. Download the latest CrispASR binary
 3. Build the WebUI Go binary (requires Go 1.22+, auto-installed)
 4. Configure systemd services (CrispASR + WebUI), enabled on boot
-5. Interactively set a login password
-6. Start all services
+5. Start all services (default password `12345678`, change in Web UI Settings)
 
 ### Password
 
-**There is no default password.** The installer handles passwords as follows:
-
-1. If `TTS_PASSWORD` env var is set, use that value
-2. Otherwise, prompt interactively (input is hidden)
-3. If left empty, a random 16-char password is auto-generated and displayed
+**Default password: `12345678`**, automatically written to the SQLite database on first startup. The password is never stored in env files or systemd EnvironmentFile.
 
 After installation, the terminal shows:
 
@@ -52,7 +47,7 @@ After installation, the terminal shows:
   🎙️  CrispASR TTS Web UI is ready!
 
   URL:      http://10.0.0.25:8888
-  Password: a3b5c7d9e1f2a4b6
+  Password: 12345678 (default, change in Settings)
 
   Services:  systemctl status crispasr crispasr-webui
   Logs:      journalctl -u crispasr-webui -f
@@ -60,19 +55,17 @@ After installation, the terminal shows:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-The password is stored in `/etc/crispasr-webui.env` (mode 600, root-only).
+The password is stored in the SQLite database (`/var/lib/crispasr-webui/tts.db`, `settings` table) as a bcrypt hash.
 
-**Change password:**
+**Change password:** Click the user icon in the top-right corner → Change Password. Changes take effect immediately and persist across restarts.
+
+**Forgot password?** Delete the password record from the database, then restart — it will reset to the default `12345678`:
 
 ```bash
-# Edit the password file
-sudo nano /etc/crispasr-webui.env
-
-# Restart WebUI to apply
-sudo systemctl restart crispasr-webui
+sudo systemctl stop crispasr-webui
+sqlite3 /var/lib/crispasr-webui/tts.db "DELETE FROM settings WHERE key='password';"
+sudo systemctl start crispasr-webui
 ```
-
-**Change via Web UI:** Click the user icon in the top-right corner → Change Password.
 
 ### Compatibility
 
@@ -91,9 +84,6 @@ sudo systemctl restart crispasr-webui
 ```bash
 # Custom install dir, CUDA, specific model
 sudo INSTALL_DIR=/opt/my-tts GPU_BACKEND=cuda MODEL=qwen3-tts-customvoice-0.6b-q8 bash install.sh
-
-# Set password via env var (non-interactive, for automation)
-sudo TTS_PASSWORD=your_password bash install.sh
 ```
 
 | Variable | Default | Description |
@@ -104,7 +94,6 @@ sudo TTS_PASSWORD=your_password bash install.sh
 | `CRISPASR_PORT` | `8080` | CrispASR service port |
 | `GPU_BACKEND` | `auto` | GPU mode: `auto`, `cpu`, `cuda`, `vulkan` |
 | `MODEL` | `qwen3-tts-customvoice-1.7b-f16` | Default TTS model |
-| `TTS_PASSWORD` | *(interactive)* | Login password |
 
 ### Manual Install
 
@@ -118,7 +107,7 @@ go build -o crispasr-webui .
   --port 8080 &
 
 # Run WebUI
-TTS_PASSWORD=your_password CRISPASR_DIR=/opt/crispasr ./crispasr-webui
+CRISPASR_DIR=/opt/crispasr ./crispasr-webui
 ```
 
 Open http://localhost:8888
@@ -138,7 +127,6 @@ Open http://localhost:8888
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TTS_PASSWORD` | *(required)* | Login password |
 | `CRISPASR_DIR` | `.` | CrispASR installation directory |
 | `CRISPASR_DATA_DIR` | `./tts_data` | Data directory (DB, audio, uploads) |
 | `TTS_PORT` | `8888` | HTTP port |
@@ -164,7 +152,13 @@ CrispASR provides pre-built binaries for:
 <details>
 <summary><strong>Forgot password?</strong></summary>
 
-Edit `/etc/crispasr-webui.env`, change `TTS_PASSWORD=new_password`, then `sudo systemctl restart crispasr-webui`.
+Delete the password record from the database, then restart — it will reset to the default `12345678`:
+
+```bash
+sudo systemctl stop crispasr-webui
+sqlite3 /var/lib/crispasr-webui/tts.db "DELETE FROM settings WHERE key='password';"
+sudo systemctl start crispasr-webui
+```
 </details>
 
 <details>

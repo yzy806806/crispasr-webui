@@ -33,16 +33,11 @@ curl -fsSL https://raw.githubusercontent.com/yzy806806/crispasr-webui/main/insta
 2. 下载最新 CrispASR 二进制文件
 3. 编译 Go 版 WebUI（需 Go 1.22+，脚本可自动安装）
 4. 配置 systemd 服务（CrispASR + WebUI），开机自启
-5. 交互式设置登录密码
-6. 启动所有服务
+5. 启动所有服务（默认密码 `12345678`，登录后可在设置中修改）
 
 ### 密码说明
 
-**没有默认密码。** 安装时密码设置流程如下：
-
-1. 如果设置了环境变量 `TTS_PASSWORD`，直接使用该值
-2. 否则交互式提示输入密码（输入时不显示字符）
-3. 如果直接回车（空密码），脚本会自动生成一个 16 位随机密码并显示
+**默认密码：`12345678`**，首次启动时自动写入 SQLite 数据库。密码不经过 env 文件或 systemd EnvironmentFile。
 
 安装完成后，终端会打印：
 
@@ -51,7 +46,7 @@ curl -fsSL https://raw.githubusercontent.com/yzy806806/crispasr-webui/main/insta
   🎙️  CrispASR TTS Web UI is ready!
 
   URL:      http://10.0.0.25:8888
-  Password: a3b5c7d9e1f2a4b6
+  Password: 12345678 (default, change in Settings)
 
   Services:  systemctl status crispasr crispasr-webui
   Logs:      journalctl -u crispasr-webui -f
@@ -59,19 +54,17 @@ curl -fsSL https://raw.githubusercontent.com/yzy806806/crispasr-webui/main/insta
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ```
 
-密码保存在 `/etc/crispasr-webui.env`（权限 600，仅 root 可读）。
+密码保存在 SQLite 数据库（`/var/lib/crispasr-webui/tts.db` 的 `settings` 表），以 bcrypt 哈希存储。
 
-**修改密码：**
+**修改密码：** 登录后点击右上角用户图标 → 修改密码。修改后立即生效，重启后自动从数据库恢复。
+
+**忘记密码怎么办？** 删除数据库中的密码记录，重启后恢复为默认密码 `12345678`：
 
 ```bash
-# 编辑密码文件
-sudo nano /etc/crispasr-webui.env
-
-# 重启 WebUI 服务使新密码生效
-sudo systemctl restart crispasr-webui
+sudo systemctl stop crispasr-webui
+sqlite3 /var/lib/crispasr-webui/tts.db "DELETE FROM settings WHERE key='password';"
+sudo systemctl start crispasr-webui
 ```
-
-**Web 界面修改密码：** 登录后点击右上角用户图标 → 修改密码。
 
 ### 兼容性
 
@@ -90,9 +83,6 @@ sudo systemctl restart crispasr-webui
 ```bash
 # 自定义安装目录、使用 CUDA、指定模型
 sudo INSTALL_DIR=/opt/my-tts GPU_BACKEND=cuda MODEL=qwen3-tts-customvoice-0.6b-q8 bash install.sh
-
-# 通过环境变量设置密码（非交互式，适合自动化部署）
-sudo TTS_PASSWORD=your_password bash install.sh
 ```
 
 | 变量 | 默认值 | 说明 |
@@ -103,7 +93,6 @@ sudo TTS_PASSWORD=your_password bash install.sh
 | `CRISPASR_PORT` | `8080` | CrispASR 服务端口 |
 | `GPU_BACKEND` | `auto` | GPU 模式：`auto`、`cpu`、`cuda`、`vulkan` |
 | `MODEL` | `qwen3-tts-customvoice-1.7b-f16` | 默认 TTS 模型 |
-| `TTS_PASSWORD` | *（交互输入）* | 登录密码 |
 
 ### 手动安装
 
@@ -117,8 +106,7 @@ go build -o crispasr-webui .
   --port 8080 &
 
 # 3. 启动 WebUI
-TTS_PASSWORD=your_password CRISPASR_DIR=/opt/crispasr \
-  ./crispasr-webui
+CRISPASR_DIR=/opt/crispasr ./crispasr-webui
 ```
 
 打开 http://localhost:8888
@@ -138,7 +126,6 @@ TTS_PASSWORD=your_password CRISPASR_DIR=/opt/crispasr \
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `TTS_PASSWORD` | *（必填）* | 登录密码 |
 | `CRISPASR_DIR` | `.` | CrispASR 安装目录 |
 | `CRISPASR_DATA_DIR` | `./tts_data` | 数据目录（数据库、音频、上传） |
 | `TTS_PORT` | `8888` | HTTP 端口 |
@@ -164,7 +151,13 @@ CrispASR 提供以下预编译二进制文件：
 <details>
 <summary><strong>忘记密码怎么办？</strong></summary>
 
-编辑 `/etc/crispasr-webui.env`，修改 `TTS_PASSWORD=新密码`，然后 `sudo systemctl restart crispasr-webui`。
+删除数据库中的密码记录，重启后恢复为默认密码 `12345678`：
+
+```bash
+sudo systemctl stop crispasr-webui
+sqlite3 /var/lib/crispasr-webui/tts.db "DELETE FROM settings WHERE key='password';"
+sudo systemctl start crispasr-webui
+```
 </details>
 
 <details>
