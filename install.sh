@@ -74,12 +74,6 @@ fi
 info "Platform: ${OS}/${ARCH_TAG}, GPU: ${GPU_BACKEND}"
 info "Asset: ${ASSET}"
 
-# ─── Password (env or auto-generate, no interactive prompt) ─
-if [ -z "${TTS_PASSWORD:-}" ]; then
-    TTS_PASSWORD=$(openssl rand -hex 8 2>/dev/null || head -c 16 /dev/urandom | od -A n -t x1 | tr -d ' \n' | head -c 16)
-    warn "Auto-generated password: ${TTS_PASSWORD} (set TTS_PASSWORD env to override)"
-fi
-
 # ─── Get latest CrispASR version ──────────────────────────
 info "Fetching latest CrispASR release..."
 LATEST_TAG="$(curl -sfL 'https://api.github.com/repos/CrispStrobe/CrispASR/releases/latest' \
@@ -184,7 +178,7 @@ if [ "$OS" = "linux" ] && command -v useradd >/dev/null 2>&1; then
     chown -R "$WEBUI_USER":"$WEBUI_USER" "${DATA_DIR}" "${INSTALL_DIR}/voices" "${INSTALL_DIR}/static" 2>/dev/null || true
 fi
 
-# ─── Write password file ──────────────────────────────────
+# ─── Write config file ────────────────────────────────────
 ENV_FILE="/etc/tts-webui.env"
 if [ "$OS" = "linux" ]; then
     cat > "$ENV_FILE" << ENVEOF
@@ -195,10 +189,9 @@ CRISPASR_AUTOSTART=1
 CRISPASR_IDLE_TIMEOUT=300
 ENVEOF
     chmod 644 "$ENV_FILE"
-    ok "Password saved to ${ENV_FILE}"
+    ok "Config saved to ${ENV_FILE} (password stored in DB, default: 0086)"
 else
     warn "Save these env vars for manual startup:"
-    echo "  export TTS_PASSWORD='***'"
     echo "  export CRISPASR_DIR='${INSTALL_DIR}'"
     echo "  export CRISPASR_DATA_DIR='${DATA_DIR}'"
     echo "  export CRISPASR_AUTOSTART=1"
@@ -256,7 +249,6 @@ After=network.target crispasr.service
 Type=simple
 User=${WEBUI_USER}
 WorkingDirectory=${INSTALL_DIR}
-Environment="TTS_PASSWORD=${TTS_PASSWORD}"
 EnvironmentFile=${ENV_FILE}
 ExecStart=${WEBUI_BIN}
 Restart=on-failure
@@ -295,7 +287,7 @@ EOF
     echo -e "${CYAN}  🎙️  CrispASR TTS Web UI is ready!${NC}"
     echo ""
     echo -e "  URL:      ${GREEN}http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):${WEBUI_PORT}${NC}"
-    echo -e "  Password: ${TTS_PASSWORD}"
+    echo -e "  Password: 0086 (default, change in Settings)"
     echo ""
     echo -e "  ${YELLOW}⚡ Auto start/stop enabled${NC} — CrispASR stops after 5 min idle, starts on demand"
     echo ""
@@ -314,7 +306,7 @@ else
     echo "     ${BINARY_DIR}/crispasr --server --backend qwen3-tts-customvoice -m qwen3-tts-1.7b-customvoice --voice-dir ${INSTALL_DIR}/voices --port ${CRISPASR_PORT} &"
     echo ""
     echo "  2. Start WebUI:"
-    echo "     TTS_PASSWORD='***' CRISPASR_DIR='${INSTALL_DIR}' CRISPASR_DATA_DIR='${DATA_DIR}' \\"
+    echo "     CRISPASR_DIR='${INSTALL_DIR}' CRISPASR_DATA_DIR='${DATA_DIR}' \\\\"
     echo "       ${WEBUI_BIN}"
     echo ""
     echo -e "  Then open: ${GREEN}http://localhost:${WEBUI_PORT}${NC}"
