@@ -188,7 +188,6 @@ fi
 ENV_FILE="/etc/tts-webui.env"
 if [ "$OS" = "linux" ]; then
     cat > "$ENV_FILE" << ENVEOF
-TTS_PASSWORD=${TTS_PASSWORD}
 CRISPASR_DIR=${INSTALL_DIR}
 CRISPASR_DATA_DIR=${DATA_DIR}
 CRISPASR_PORT=${CRISPASR_PORT}
@@ -257,7 +256,8 @@ After=network.target crispasr.service
 Type=simple
 User=${WEBUI_USER}
 WorkingDirectory=${INSTALL_DIR}
-Environment="TTS_PASSWORD=***\nEnvironmentFile=${ENV_FILE}
+Environment="TTS_PASSWORD=${TTS_PASSWORD}"
+EnvironmentFile=${ENV_FILE}
 ExecStart=${WEBUI_BIN}
 Restart=on-failure
 RestartSec=5
