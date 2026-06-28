@@ -179,7 +179,7 @@ if [ "$_do_install" = "1" ]; then
         git clone --depth 1 --branch "${LATEST_TAG}" https://github.com/CrispStrobe/CrispASR "${SRC_DIR}"
 
         info "Configuring (cmake)..."
-        cmake -B "${SRC_DIR}/build" -DCMAKE_BUILD_TYPE=Release
+        cmake -B "${SRC_DIR}/build" -S "${SRC_DIR}" -DCMAKE_BUILD_TYPE=Release
 
         info "Compiling (this may take several minutes)..."
         cmake --build "${SRC_DIR}/build" -j"$(nproc)"
