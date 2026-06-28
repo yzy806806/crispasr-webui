@@ -833,7 +833,11 @@ func handleSwitchModel(w http.ResponseWriter, r *http.Request) {
 
 	execStart := strings.Join(cmdParts, " ")
 
-	svcPath := "/etc/systemd/system/crispasr.service"
+	svcPath := filepath.Join(cfg.CrispASRDir, "crispasr.service")
+	// If the real file is elsewhere (symlinked), follow the symlink
+	if resolved, err := filepath.EvalSymlinks(svcPath); err == nil {
+		svcPath = resolved
+	}
 	content, err := os.ReadFile(svcPath)
 	if err != nil {
 		sendJSON(w, 400, map[string]string{"error": "需要systemd管理CrispASR", "cmd": execStart})

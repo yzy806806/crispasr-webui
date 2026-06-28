@@ -337,7 +337,8 @@ if [ "$OS" = "linux" ] && command -v systemctl >/dev/null 2>&1; then
     fi
 
     # --- CrispASR service ---
-    cat > /etc/systemd/system/crispasr.service << EOF
+    # Write to INSTALL_DIR so the webui user can modify it (model switching)
+    cat > "${INSTALL_DIR}/crispasr.service" << EOF
 [Unit]
 Description=CrispASR TTS Server (${MODEL})
 After=network.target
@@ -382,9 +383,12 @@ EOF
     # --- Sudoers for auto start/stop ---
     SUDOERS_FILE="/etc/sudoers.d/crispasr-autostart"
     cat > "$SUDOERS_FILE" << EOF
-${WEBUI_USER} ALL=(ALL) NOPASSWD: /usr/bin/systemctl start crispasr, /usr/bin/systemctl stop crispasr, /usr/bin/systemctl restart crispasr
+${WEBUI_USER} ALL=(ALL) NOPASSWD: /usr/bin/systemctl start crispasr, /usr/bin/systemctl stop crispasr, /usr/bin/systemctl restart crispasr, /usr/bin/systemctl daemon-reload
 EOF
     chmod 440 "$SUDOERS_FILE"
+
+    # Symlink service file into systemd (actual file lives in INSTALL_DIR so webui can write)
+    ln -sf "${INSTALL_DIR}/crispasr.service" /etc/systemd/system/crispasr.service
 
     systemctl daemon-reload
     systemctl enable crispasr crispasr-webui
