@@ -275,7 +275,7 @@ func writeEnvPassword(path, password string) error {
 	if err != nil {
 		// Create new file atomically
 		tmp := path + ".tmp"
-		if err := os.WriteFile(tmp, []byte("TTS_PASSWORD="+password+"\n"), 0644); err != nil {
+		if err := os.WriteFile(tmp, []byte("TTS_PASSWORD="+password), 0644); err != nil {
 			return err
 		}
 		return os.Rename(tmp, path)
@@ -293,7 +293,8 @@ func writeEnvPassword(path, password string) error {
 		lines = append(lines, "TTS_PASSWORD="+password)
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, []byte(strings.Join(lines, "\n")), 0644); err != nil {
+	content := strings.TrimRight(strings.Join(lines, "\n"), "\n")
+	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

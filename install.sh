@@ -185,16 +185,10 @@ if [ "$OS" = "linux" ] && command -v useradd >/dev/null 2>&1; then
 fi
 
 # ─── Write password file ──────────────────────────────────
-ENV_FILE="/etc/crispasr-webui.env"
+ENV_FILE="/etc/tts-webui.env"
 if [ "$OS" = "linux" ]; then
-    cat > "$ENV_FILE" << EOF
-TTS_PASSWORD=${TTS_PASSWORD}
-CRISPASR_DIR=${INSTALL_DIR}
-CRISPASR_DATA_DIR=${DATA_DIR}
-CRISPASR_PORT=${CRISPASR_PORT}
-CRISPASR_AUTOSTART=1
-CRISPASR_IDLE_TIMEOUT=300
-EOF
+    printf 'TTS_PASSWORD=%s\nCRISPASR_DIR=%s\nCRISPASR_DATA_DIR=%s\nCRISPASR_PORT=%s\nCRISPASR_AUTOSTART=1\nCRISPASR_IDLE_TIMEOUT=300\n' \
+        "$TTS_PASSWORD" "$INSTALL_DIR" "$DATA_DIR" "$CRISPASR_PORT" > "$ENV_FILE"
     chmod 600 "$ENV_FILE"
     ok "Password saved to ${ENV_FILE}"
 else
