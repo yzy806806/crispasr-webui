@@ -25,6 +25,14 @@ ok()    { echo -e "${GREEN}[OK]${NC} $*"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $*"; }
 err()   { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
+# Check a command exists, try to install if missing (apt only)
+_check_cmd() {
+    local bin="$1" name="$2" install_cmd="$3"
+    command -v "$bin" >/dev/null 2>&1 && return 0
+    warn "${name} not found, installing..."
+    $install_cmd || err "Failed to install ${name}. Install manually and re-run."
+}
+
 # ─── Pre-flight checks ────────────────────────────────────
 info "CrispASR TTS Web UI Installer"
 echo ""
@@ -85,45 +93,63 @@ fi
 LATEST_VER="${LATEST_TAG#v}"
 info "Latest CrispASR: ${LATEST_VER}"
 
-# ─── Download CrispASR ────────────────────────────────────
-DOWNLOAD_URL="https://github.com/CrispStrobe/CrispASR/releases/download/${LATEST_TAG}/${ASSET}"
+# ─── Install CrispASR ──────────────────────────────────────
 BINARY_DIR="${INSTALL_DIR}/bin"
 
 if [ -f "${BINARY_DIR}/crispasr" ]; then
     CURRENT_VER="$("${BINARY_DIR}/crispasr" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo 'unknown')"
     if [ "$CURRENT_VER" = "$LATEST_VER" ]; then
-        ok "CrispASR ${CURRENT_VER} already installed, skipping download"
+        ok "CrispASR ${CURRENT_VER} already installed, skipping"
     else
         info "Updating CrispASR ${CURRENT_VER} → ${LATEST_VER}"
-        _do_download=1
+        _do_install=1
     fi
 else
-    _do_download=1
+    _do_install=1
 fi
 
-if [ "${_do_download:-0}" = "1" ]; then
-    info "Downloading ${ASSET}..."
-    TMPDIR="$(mktemp -d)"
-    trap 'rm -rf "$TMPDIR"' EXIT
-
-    curl -fSL --progress-bar -o "${TMPDIR}/${ASSET}" "${DOWNLOAD_URL}" \
-        || err "Download failed: ${DOWNLOAD_URL}"
-
-    info "Extracting..."
+if [ "${_do_install:-0}" = "1" ]; then
     mkdir -p "${BINARY_DIR}"
-    tar xzf "${TMPDIR}/${ASSET}" -C "${TMPDIR}"
 
-    # Find and install binary
-    BINARY_SRC="$(find "${TMPDIR}" -name crispasr -type f 2>/dev/null | head -1)"
-    [ -n "$BINARY_SRC" ] || err "Cannot find crispasr binary in archive"
+    if [ "$ARCH_TAG" = "arm64" ]; then
+        # aarch64: build from source (prebuilt binaries may use SVE instructions
+        # that are not available on Neoverse-N1 / Raspberry Pi 5)
+        info "Building CrispASR from source for ${ARCH_TAG}..."
+        _check_cmd cmake "cmake" "apt-get install -y cmake"
+        _check_cmd g++ "g++" "apt-get install -y g++"
+        _check_cmd git "git" "apt-get install -y git"
 
-    cp "$BINARY_SRC" "${BINARY_DIR}/crispasr"
-    chmod +x "${BINARY_DIR}/crispasr"
+        CRISPASR_SRC="$(mktemp -d)"
+        trap 'rm -rf "$CRISPASR_SRC"' EXIT
+        git clone --depth 1 --branch "${LATEST_TAG}" https://github.com/CrispStrobe/CrispASR "${CRISPASR_SRC}"
+        cmake -B "${CRISPASR_SRC}/build" -DCMAKE_BUILD_TYPE=Release
+        cmake --build "${CRISPASR_SRC}/build" -j"$(nproc)"
+        cp "${CRISPASR_SRC}/build/bin/crispasr" "${BINARY_DIR}/crispasr"
+        cp "${CRISPASR_SRC}/build/bin/crispasr-quantize" "${BINARY_DIR}/crispasr-quantize" 2>/dev/null || true
+        chmod +x "${BINARY_DIR}/crispasr" "${BINARY_DIR}/crispasr-quantize" 2>/dev/null || true
+    else
+        # x86_64 / macOS: use prebuilt binary
+        DOWNLOAD_URL="https://github.com/CrispStrobe/CrispASR/releases/download/${LATEST_TAG}/${ASSET}"
+        info "Downloading ${ASSET}..."
+        TMPDIR="$(mktemp -d)"
+        trap 'rm -rf "$TMPDIR"' EXIT
 
-    # Copy auxiliary binaries (crispasr-quantize, etc.)
-    find "$(dirname "$BINARY_SRC")" -name 'crispasr*' -type f 2>/dev/null | while read -r f; do
-        [ "$f" != "$BINARY_SRC" ] && cp "$f" "${BINARY_DIR}/" && chmod +x "${BINARY_DIR}/$(basename "$f")"
-    done
+        curl -fSL --progress-bar -o "${TMPDIR}/${ASSET}" "${DOWNLOAD_URL}" \
+            || err "Download failed: ${DOWNLOAD_URL}"
+
+        info "Extracting..."
+        tar xzf "${TMPDIR}/${ASSET}" -C "${TMPDIR}"
+
+        BINARY_SRC="$(find "${TMPDIR}" -name crispasr -type f 2>/dev/null | head -1)"
+        [ -n "$BINARY_SRC" ] || err "Cannot find crispasr binary in archive"
+
+        cp "$BINARY_SRC" "${BINARY_DIR}/crispasr"
+        chmod +x "${BINARY_DIR}/crispasr"
+
+        find "$(dirname "$BINARY_SRC")" -name 'crispasr*' -type f 2>/dev/null | while read -r f; do
+            [ "$f" != "$BINARY_SRC" ] && cp "$f" "${BINARY_DIR}/" && chmod +x "${BINARY_DIR}/$(basename "$f")"
+        done
+    fi
 
     ok "CrispASR ${LATEST_VER} installed to ${BINARY_DIR}"
 fi
