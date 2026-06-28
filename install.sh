@@ -74,18 +74,10 @@ fi
 info "Platform: ${OS}/${ARCH_TAG}, GPU: ${GPU_BACKEND}"
 info "Asset: ${ASSET}"
 
-# ─── Ask for password ─────────────────────────────────────
+# ─── Password (env or auto-generate, no interactive prompt) ─
 if [ -z "${TTS_PASSWORD:-}" ]; then
-    echo ""
-    read -rsp "Set WebUI login password: " TTS_PASSWORD
-    echo ""
-    if [ -z "$TTS_PASSWORD" ]; then
-        TTS_PASSWORD=$(openssl rand -hex 8 2>/dev/null || head -c 16 /dev/urandom | od -A n -t x1 | tr -d ' \n' | head -c 16)
-        warn "Empty password — auto-generated: ${TTS_PASSWORD}"
-    fi
-    read -rsp "Confirm password: " TTS_CONFIRM
-    echo ""
-    [ "$TTS_PASSWORD" = "$TTS_CONFIRM" ] || err "Passwords do not match"
+    TTS_PASSWORD=$(openssl rand -hex 8 2>/dev/null || head -c 16 /dev/urandom | od -A n -t x1 | tr -d ' \n' | head -c 16)
+    warn "Auto-generated password: ${TTS_PASSWORD} (set TTS_PASSWORD env to override)"
 fi
 
 # ─── Get latest CrispASR version ──────────────────────────

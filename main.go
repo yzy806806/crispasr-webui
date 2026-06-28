@@ -81,7 +81,7 @@ func initConfig() {
 		JWTSecret:     envOr("JWT_SECRET", ""),
 		JWTExpiry:     604800,
 		Port:          8888,
-		Password:      envOr("TTS_PASSWORD", ""),
+		Password:      strings.TrimSpace(envOr("TTS_PASSWORD", "")),
 		MaxBody:       10 << 20,
 		MaxUpload:     10 << 20,
 		AutoStartStop: envOr("CRISPASR_AUTOSTART", "1") == "1",
@@ -1796,7 +1796,7 @@ func main() {
 		if data, err := os.ReadFile(envFilePath); err == nil {
 			for _, line := range strings.Split(string(data), "\n") {
 				if strings.HasPrefix(line, "TTS_PASSWORD=") {
-					cfg.Password = strings.TrimPrefix(line, "TTS_PASSWORD=")
+					cfg.Password = strings.TrimSpace(strings.TrimPrefix(line, "TTS_PASSWORD="))
 				}
 			}
 		}
