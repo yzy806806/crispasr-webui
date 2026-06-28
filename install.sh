@@ -173,7 +173,7 @@ mkdir -p "${DATA_DIR}/audio" "${DATA_DIR}/uploads" "${INSTALL_DIR}/voices"
 if [ "$OS" = "linux" ] && command -v useradd >/dev/null 2>&1; then
     if ! id "$WEBUI_USER" >/dev/null 2>&1; then
         info "Creating system user: ${WEBUI_USER}"
-        useradd --system --no-create-home --shell /usr/sbin/nologin "$WEBUI_USER" 2>/dev/null || true
+        useradd --system --create-home --home-dir /home/${WEBUI_USER} --shell /usr/sbin/nologin "$WEBUI_USER" 2>/dev/null || true
     fi
     chown -R "$WEBUI_USER":"$WEBUI_USER" "${DATA_DIR}" "${INSTALL_DIR}/voices" "${INSTALL_DIR}/static" 2>/dev/null || true
 fi
@@ -228,7 +228,7 @@ After=network.target
 Type=simple
 User=${WEBUI_USER}
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=${BINARY_DIR}/crispasr --server --backend ${BACKEND} -m ${MODEL_FLAG} --auto-download --voice-dir ${INSTALL_DIR}/voices --host 127.0.0.1 --port ${CRISPASR_PORT} -t ${THREADS} ${GPU_FLAGS}
+ExecStart=${BINARY_DIR}/crispasr --server --backend ${BACKEND} -m ${MODEL_FLAG} --auto-download --model-quant f16 --voice-dir ${INSTALL_DIR}/voices --host 127.0.0.1 --port ${CRISPASR_PORT} -t ${THREADS} ${GPU_FLAGS}
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
