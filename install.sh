@@ -165,57 +165,35 @@ fi
 if [ "$_do_install" = "1" ]; then
     mkdir -p "${BINARY_DIR}"
 
-    if [ "$ARCH_TAG" = "arm64" ]; then
-        # ── aarch64: build from source ──
-        # Prebuilt arm64 binaries may use SVE instructions unavailable on
-        # Neoverse-N1 / Raspberry Pi 5. Building locally guarantees CPU-compatible code.
-        info "Building CrispASR from source for ${ARCH_TAG}..."
-        _ensure_cmd cmake
-        _ensure_cmd g++ gcc-c++
-        _ensure_cmd make
+    # ── Use prebuilt binary for all platforms ──
+    DOWNLOAD_URL="https://github.com/CrispStrobe/CrispASR/releases/download/${LATEST_TAG}/${ASSET}"
+    info "Downloading ${ASSET}..."
+    _mktemp && TMPDIR="$_mktemp_value"
 
-        _mktemp && SRC_DIR="$_mktemp_value"
-        info "Cloning CrispASR ${LATEST_TAG}..."
-        git clone --depth 1 --branch "${LATEST_TAG}" https://github.com/CrispStrobe/CrispASR "${SRC_DIR}"
+    curl -fSL --progress-bar -o "${TMPDIR}/${ASSET}" "${DOWNLOAD_URL}" \
+        || die "Download failed: ${DOWNLOAD_URL}"
 
-        info "Configuring (cmake)..."
-        cmake -B "${SRC_DIR}/build" -S "${SRC_DIR}" -DCMAKE_BUILD_TYPE=Release
+    info "Extracting..."
+    tar xzf "${TMPDIR}/${ASSET}" -C "${TMPDIR}"
 
-        info "Compiling (this may take several minutes)..."
-        cmake --build "${SRC_DIR}/build" -j"$(nproc)"
+    # Copy binaries
+    BINARY_SRC="$(find "${TMPDIR}" -name crispasr -type f 2>/dev/null | head -1)"
+    [ -n "$BINARY_SRC" ] || die "Cannot find crispasr binary in archive"
+    BINARY_DIR_SRC="$(dirname "$BINARY_SRC")"
 
-        cp "${SRC_DIR}/build/bin/crispasr" "${BINARY_DIR}/crispasr"
-        cp "${SRC_DIR}/build/bin/crispasr-quantize" "${BINARY_DIR}/crispasr-quantize" 2>/dev/null || true
-        chmod +x "${BINARY_DIR}/crispasr" "${BINARY_DIR}/crispasr-quantize" 2>/dev/null || true
+    cp "$BINARY_SRC" "${BINARY_DIR}/crispasr"
+    chmod +x "${BINARY_DIR}/crispasr"
 
-        # Copy shared libraries (required by the binary)
-        mkdir -p "${BINARY_DIR}/../lib"
-        find "${SRC_DIR}/build" -name '*.so*' -type f 2>/dev/null | while read -r so; do
-            cp "$so" "${BINARY_DIR}/../lib/" && chmod +x "${BINARY_DIR}/../lib/$(basename "$so")"
-        done
-    else
-        # ── x86_64 / macOS: use prebuilt binary ──
-        DOWNLOAD_URL="https://github.com/CrispStrobe/CrispASR/releases/download/${LATEST_TAG}/${ASSET}"
-        info "Downloading ${ASSET}..."
-        _mktemp && TMPDIR="$_mktemp_value"
+    # Copy auxiliary binaries (crispasr-quantize, etc.)
+    find "$BINARY_DIR_SRC" -name 'crispasr*' -type f 2>/dev/null | while read -r f; do
+        [ "$f" != "$BINARY_SRC" ] && cp "$f" "${BINARY_DIR}/" && chmod +x "${BINARY_DIR}/$(basename "$f")"
+    done
 
-        curl -fSL --progress-bar -o "${TMPDIR}/${ASSET}" "${DOWNLOAD_URL}" \
-            || die "Download failed: ${DOWNLOAD_URL}"
-
-        info "Extracting..."
-        tar xzf "${TMPDIR}/${ASSET}" -C "${TMPDIR}"
-
-        BINARY_SRC="$(find "${TMPDIR}" -name crispasr -type f 2>/dev/null | head -1)"
-        [ -n "$BINARY_SRC" ] || die "Cannot find crispasr binary in archive"
-
-        cp "$BINARY_SRC" "${BINARY_DIR}/crispasr"
-        chmod +x "${BINARY_DIR}/crispasr"
-
-        # Copy auxiliary binaries (crispasr-quantize, etc.)
-        find "$(dirname "$BINARY_SRC")" -name 'crispasr*' -type f 2>/dev/null | while read -r f; do
-            [ "$f" != "$BINARY_SRC" ] && cp "$f" "${BINARY_DIR}/" && chmod +x "${BINARY_DIR}/$(basename "$f")"
-        done
-    fi
+    # Copy shared libraries if bundled in the archive
+    mkdir -p "${BINARY_DIR}/../lib"
+    find "${TMPDIR}" -name '*.so*' -type f 2>/dev/null | while read -r so; do
+        cp "$so" "${BINARY_DIR}/../lib/" && chmod +x "${BINARY_DIR}/../lib/$(basename "$so")"
+    done
 
     ok "CrispASR ${LATEST_VER} installed to ${BINARY_DIR}"
 fi
