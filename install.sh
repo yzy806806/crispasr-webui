@@ -83,7 +83,7 @@ fi
 # ─── Get latest CrispASR version ──────────────────────────
 info "Fetching latest CrispASR release..."
 LATEST_TAG="$(curl -sfL 'https://api.github.com/repos/CrispStrobe/CrispASR/releases/latest' \
-    | python3 -c 'import sys,json; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null)" || true
+    | python3 -c 'import sys,json; print(json.load(sys.stdin)["tag_name"])' 2>/dev/null || true)"
 
 if [ -z "$LATEST_TAG" ]; then
     err "Cannot fetch CrispASR release info. Check network connectivity."
