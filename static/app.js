@@ -309,60 +309,25 @@ async function switchModel(key) {
   doSwitchModel(key, '');
 }
 
-// ─── CrispASR Update ──────────────────
-async function checkUpdate() {
+// ─── CrispASR Version Check ──────────────────
+async function checkCrispASR() {
   const el = document.getElementById('versionInfo');
   el.textContent = '检查中...';
   try {
-    const resp = await apiFetch('/api/crispasr/version');
+    const resp = await apiFetch('/api/crispasr/check');
     const data = await resp.json();
-    const btn = document.getElementById('updateBtn');
     if (!data.installed) {
-      el.textContent = `未安装 | 最新: ${data.latest || '未知'}`;
-      btn.disabled = false;
-      btn.textContent = `安装 CrispASR ${data.latest || ''}`;
-      btn.className = 'btn-warn';
-    } else if (data.latest && data.latest !== data.current) {
-      el.textContent = `当前: ${data.current} | 最新: ${data.latest}`;
-      btn.disabled = false;
-      btn.textContent = `更新到 ${data.latest}`;
-      btn.className = 'btn-warn';
+      el.innerHTML = `❌ CrispASR 未安装<br><small>请自行安装后配置路径</small>`;
+    } else if (data.up_to_date) {
+      el.innerHTML = `✅ 当前: ${data.current} (最新)`;
     } else {
-      el.textContent = `当前: ${data.current} | 已是最新`;
-      btn.disabled = true;
-      btn.textContent = '已是最新';
-      btn.className = 'btn-secondary';
+      el.innerHTML = `⚠️ 当前: ${data.current} | 最新: ${data.latest}<br><small>请手动更新 CrispASR</small>`;
     }
   } catch(e) { el.textContent = '检查失败'; }
 }
 
-async function doUpdate() {
-  const btn = document.getElementById('updateBtn');
-  const statusEl = document.getElementById('updateStatus');
-  const logEl = document.getElementById('updateLog');
-  const isInstall = btn.textContent.includes('安装');
-  btn.disabled = true;
-  statusEl.innerHTML = `<span class="spinner"></span>${isInstall ? '下载安装中' : '更新中'}...`;
-  logEl.style.display = 'block';
-  logEl.textContent = isInstall ? '正在下载 CrispASR...' : '开始更新...';
-  
-  try {
-    const resp = await apiFetch('/api/crispasr/update', { method: 'POST' });
-    const data = await resp.json();
-    logEl.textContent = data.log || data.message;
-    if (data.success) {
-      statusEl.textContent = '✅ ' + data.message;
-      loadModelInfo();
-      checkUpdate();
-    } else {
-      statusEl.textContent = '❌ ' + data.message;
-    }
-  } catch(e) {
-    statusEl.textContent = '❌ 请求失败';
-    logEl.textContent = e.message;
-  }
-  btn.disabled = false;
-}
+// Keep old function name for panel init
+async function checkUpdate() { checkCrispASR(); }
 
 // ─── Init ─────────────────────────────
 async function init() {

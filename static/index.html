@@ -310,18 +310,17 @@
       </div>
       <!-- Panel: Update -->
       <div class="panel" id="panelUpdate">
-        <h2>🔄 CrispASR 更新</h2>
+        <h2>🔄 CrispASR 状态</h2>
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <label style="margin:0">版本信息</label>
-            <span id="versionInfo" class="hint">当前版本: 检测中...</span>
+            <span id="versionInfo" class="hint">检测中...</span>
           </div>
-          <div style="display:flex;gap:10px;align-items:center">
-            <button class="btn-secondary" onclick="checkUpdate()">检查更新</button>
-            <button class="btn-warn" id="updateBtn" onclick="doUpdate()" disabled>安装/更新</button>
-            <span id="updateStatus"></span>
+          <button class="btn-secondary" onclick="checkUpdate()">检查版本</button>
+          <div class="hint" style="margin-top:8px">
+            CrispASR 需自行安装。<br>
+            安装后请在下方配置路径。
           </div>
-          <div class="update-log" id="updateLog" style="display:none"></div>
         </div>
       </div>
     </main>

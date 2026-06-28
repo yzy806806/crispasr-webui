@@ -1471,223 +1471,17 @@ func getCrispASRVersion() string {
 	return "unknown"
 }
 
-func handleCrispASRUpdate(w http.ResponseWriter, r *http.Request) {
-	// ── Step 1: Detect platform ──────────────────────────────
-	arch := "x86_64"
-	if a, _ := exec.Command("uname", "-m").Output(); len(a) > 0 {
-		a := strings.TrimSpace(string(a))
-		if a == "aarch64" || a == "arm64" {
-			arch = "arm64"
-		}
-	}
-
-	// Detect GPU
-	gpuBackend := "cpu"
-	if out, _ := exec.Command("nvidia-smi").CombinedOutput(); len(out) > 0 {
-		gpuBackend = "cuda"
-	} else if out, _ := exec.Command("vulkaninfo").CombinedOutput(); len(out) > 0 {
-		gpuBackend = "vulkan"
-	}
-
-	// Build asset name
-	asset := fmt.Sprintf("crispasr-linux-%s", arch)
-	if gpuBackend == "cuda" {
-		asset = fmt.Sprintf("crispasr-linux-%s-cuda", arch)
-	} else if gpuBackend == "vulkan" {
-		asset = fmt.Sprintf("crispasr-linux-%s-vulkan", arch)
-	}
-	asset += ".tar.gz"
-
-	// ── Step 2: Get latest release tag ───────────────────────
-	latestTag := ""
-	{
-		client := &http.Client{Timeout: 15 * time.Second}
-		resp, err := client.Get("https://api.github.com/repos/CrispStrobe/CrispASR/releases/latest")
-		if err != nil {
-			sendJSON(w, 500, map[string]any{"success": false, "message": "无法连接 GitHub", "log": err.Error()})
-			return
-		}
-		defer resp.Body.Close()
-		var release struct {
-			TagName string `json:"tag_name"`
-		}
-		if json.NewDecoder(resp.Body).Decode(&release) != nil || release.TagName == "" {
-			sendJSON(w, 500, map[string]any{"success": false, "message": "无法获取最新版本", "log": "empty tag_name"})
-			return
-		}
-		latestTag = release.TagName
-	}
-
-	downloadURL := fmt.Sprintf("https://github.com/CrispStrobe/CrispASR/releases/download/%s/%s", latestTag, asset)
-	binaryDir := filepath.Join(cfg.CrispASRDir, "bin")
-
-	// ── Step 3: Download (with 10-minute timeout for large files) ──
-	tmpDir, err := os.MkdirTemp("", "crispasr-update-*")
-	if err != nil {
-		sendJSON(w, 500, map[string]any{"success": false, "message": "创建临时目录失败", "log": err.Error()})
-		return
-	}
-	defer os.RemoveAll(tmpDir)
-
-	archivePath := filepath.Join(tmpDir, asset)
-	log.Printf("UPDATE: Downloading %s ...", downloadURL)
-
-	dlClient := &http.Client{Timeout: 10 * time.Minute}
-	dlResp, err := dlClient.Get(downloadURL)
-	if err != nil {
-		sendJSON(w, 500, map[string]any{"success": false, "message": "下载失败", "log": err.Error()})
-		return
-	}
-	defer dlResp.Body.Close()
-	if dlResp.StatusCode != 200 {
-		sendJSON(w, 500, map[string]any{"success": false, "message": "下载失败: HTTP " + fmt.Sprint(dlResp.StatusCode), "log": downloadURL})
-		return
-	}
-
-	f, err := os.Create(archivePath)
-	if err != nil {
-		sendJSON(w, 500, map[string]any{"success": false, "message": "写入临时文件失败", "log": err.Error()})
-		return
-	}
-	if _, err := io.Copy(f, dlResp.Body); err != nil {
-		f.Close()
-		sendJSON(w, 500, map[string]any{"success": false, "message": "下载写入失败", "log": err.Error()})
-		return
-	}
-	f.Close()
-
-	log.Printf("UPDATE: Download complete, extracting...")
-
-	// ── Step 4: Extract ──────────────────────────────────────
-	if err := exec.Command("tar", "xzf", archivePath, "-C", tmpDir).Run(); err != nil {
-		sendJSON(w, 500, map[string]any{"success": false, "message": "解压失败", "log": err.Error()})
-		return
-	}
-
-	// Find the crispasr binary
-	binarySrc := ""
-	filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || filepath.Base(path) != "crispasr" {
-			return nil
-		}
-		binarySrc = path
-		return io.EOF
-	})
-	if binarySrc == "" {
-		sendJSON(w, 500, map[string]any{"success": false, "message": "归档中未找到 crispasr 二进制", "log": asset})
-		return
-	}
-
-	// ── Step 5: Install binary ───────────────────────────────
-	os.MkdirAll(binaryDir, 0755)
-
-	// Stop crispasr service if running (so we can replace the binary)
-	exec.Command("sudo", "systemctl", "stop", "crispasr").Run()
-
-	dstBinary := filepath.Join(binaryDir, "crispasr")
-	if err := copyFile(binarySrc, dstBinary); err != nil {
-		sendJSON(w, 500, map[string]any{"success": false, "message": "安装二进制失败", "log": err.Error()})
-		return
-	}
-	os.Chmod(dstBinary, 0755)
-
-	// Copy auxiliary binaries (crispasr-quantize, etc.)
-	filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || path == binarySrc {
-			return nil
-		}
-		if strings.HasPrefix(filepath.Base(path), "crispasr") {
-			dstAux := filepath.Join(binaryDir, filepath.Base(path))
-			if err := copyFile(path, dstAux); err == nil {
-				os.Chmod(dstAux, 0755)
-			}
-		}
-		return nil
-	})
-
-	// ── Step 6: Write or update systemd service ─────────────
-	serviceFile := "/etc/systemd/system/crispasr.service"
-	threads := 1
-	if n, _ := exec.Command("nproc").Output(); len(n) > 0 {
-		if t, _ := strconv.Atoi(strings.TrimSpace(string(n))); t > 2 {
-			threads = t / 2
-		}
-	}
-	gpuFlags := ""
-	if gpuBackend == "cuda" {
-		gpuFlags = " --gpu-backend cuda"
-	} else if gpuBackend == "vulkan" {
-		gpuFlags = " --gpu-backend vulkan"
-	}
-	runUser := os.Getenv("USER")
-	if runUser == "" {
-		runUser = "root"
-	}
-
-	execStart := fmt.Sprintf("%s --server --backend qwen3-tts-customvoice -m qwen3-tts-1.7b-customvoice --voice-dir %s/voices --host 127.0.0.1 --port %s -t %d%s",
-		dstBinary, cfg.CrispASRDir, cfg.CrispASRPort, threads, gpuFlags)
-
-	if content, err := os.ReadFile(serviceFile); err == nil {
-		// Service exists — update ExecStart if needed
-		updated := reExecStart.ReplaceAllString(string(content), "ExecStart="+execStart)
-		if updated != string(content) {
-			tmpSvc := serviceFile + ".tmp"
-			if err := os.WriteFile(tmpSvc, []byte(updated), 0644); err != nil {
-				log.Printf("UPDATE: Failed to write service temp file: %v", err)
-			} else if err := exec.Command("sudo", "mv", tmpSvc, serviceFile).Run(); err != nil {
-				log.Printf("UPDATE: Failed to move service file: %v", err)
-			} else {
-				exec.Command("sudo", "systemctl", "daemon-reload").Run()
-				log.Printf("UPDATE: Updated ExecStart in %s", serviceFile)
-			}
-		}
-	} else {
-		// Service file doesn't exist — create it via temp file + sudo mv
-		serviceContent := fmt.Sprintf(`[Unit]
-Description=CrispASR TTS Server
-After=network.target
-
-[Service]
-Type=simple
-User=%s
-WorkingDirectory=%s
-ExecStart=%s
-Restart=on-failure
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-`, runUser, cfg.CrispASRDir, execStart)
-
-		tmpSvc := serviceFile + ".tmp"
-		if err := os.WriteFile(tmpSvc, []byte(serviceContent), 0644); err != nil {
-			log.Printf("UPDATE: Failed to write service temp file: %v", err)
-		} else if err := exec.Command("sudo", "mv", tmpSvc, serviceFile).Run(); err != nil {
-			log.Printf("UPDATE: Failed to move service file: %v", err)
-		} else {
-			exec.Command("sudo", "systemctl", "daemon-reload").Run()
-			exec.Command("sudo", "systemctl", "enable", "crispasr").Run()
-			log.Printf("UPDATE: Created %s", serviceFile)
-		}
-	}
-
-	// ── Step 7: Start service ────────────────────────────────
-	if err := exec.Command("sudo", "systemctl", "start", "crispasr").Run(); err != nil {
-		sendJSON(w, 500, map[string]any{"success": false, "message": "安装完成但启动失败", "log": err.Error()})
-		return
-	}
-
-	newVer := getCrispASRVersion()
-	msg := fmt.Sprintf("CrispASR %s 安装/更新完成", newVer)
-	log.Printf("UPDATE: %s", msg)
+func handleCrispASRCheck(w http.ResponseWriter, r *http.Request) {
+	current := getCrispASRVersion()
+	latest := getLatestCrispASRVersion()
+	installed := current != "unknown" && current != ""
 
 	sendJSON(w, 200, map[string]any{
-		"success": true,
-		"message": msg,
-		"version": newVer,
-		"log":     fmt.Sprintf("下载: %s\n平台: linux/%s (%s)\n安装到: %s", asset, arch, gpuBackend, dstBinary),
+		"installed": installed,
+		"current":   current,
+		"latest":    latest,
+		"up_to_date": installed && current == latest,
+		"hint":      "CrispASR must be installed separately. See https://github.com/CrispStrobe/CrispASR",
 	})
 }
 
@@ -1912,7 +1706,7 @@ func main() {
 	mux.HandleFunc("/api/compare", requireAuth(handleCompare))
 	mux.HandleFunc("/api/batch", requireAuth(handleBatch))
 	mux.HandleFunc("/api/crispasr/version", requireAuth(handleCrispASRVersion))
-	mux.HandleFunc("/api/crispasr/update", requireAuth(handleCrispASRUpdate))
+	mux.HandleFunc("/api/crispasr/check", requireAuth(handleCrispASRCheck))
 	mux.HandleFunc("/api/resumable", requireAuth(handleResumable))
 	mux.HandleFunc("/api/resume", requireAuth(handleResume))
 	mux.HandleFunc("/api/voices", requireAuth(handleVoices))
