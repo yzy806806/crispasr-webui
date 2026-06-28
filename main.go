@@ -27,7 +27,7 @@ import (
 // ─── Constants ──────────────────────────────────────────
 
 const (
-	appVersion    = "1.3.0"
+	appVersion    = "1.3.1"
 	wavHeaderSize = 44
 	splitThreshold = 800
 	maxTruncateLen = 2000
@@ -50,6 +50,7 @@ var (
 	reSemVer     = regexp.MustCompile(`(\d+\.\d+\.\d+)`)
 	reSafeName   = regexp.MustCompile(`[^\w]`)
 	reSafeNameHy = regexp.MustCompile(`[^\w-]`)
+	reBase64URL  = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 )
 
 // ─── HTTP client with timeout ───────────────────────────
@@ -231,6 +232,12 @@ func jwtVerify(token string) map[string]any {
 	parts := strings.SplitN(token, ".", 3)
 	if len(parts) != 3 {
 		return nil
+	}
+	// Validate all parts are well-formed base64url before comparison
+	for _, p := range parts {
+		if !reBase64URL.MatchString(p) {
+			return nil
+		}
 	}
 	h := hmac.New(sha256.New, []byte(cfg.JWTSecret))
 	h.Write([]byte(parts[0] + "." + parts[1]))
@@ -446,6 +453,7 @@ var (
 	crispASRState  = "unknown" // "running", "stopped", "starting", "stopping"
 	lastActiveTime time.Time
 	stopTimer      *time.Timer
+	svcWriteMu     sync.Mutex // guards /etc/systemd/system/crispasr.service writes
 )
 
 // ensureCrispASRRunning starts crispasr if needed and waits for it to be healthy.
@@ -537,7 +545,11 @@ func scheduleCrispASRStop() {
 		crispASRMu.Lock()
 		defer crispASRMu.Unlock()
 
-		// Check again: a task may have arrived since the timer was set
+		// Re-check state: a task may have arrived since the timer was set
+		if crispASRState != "running" {
+			return
+		}
+
 		queueMu.Lock()
 		busy := len(queue) > 0 || active != nil
 		queueMu.Unlock()
@@ -674,11 +686,13 @@ func processTask(t *Task) {
 	dbExec("UPDATE history SET status='done',audio_file=?,duration=? WHERE id=?", audioFile, duration, t.ID)
 }
 
-// dbExec logs errors instead of silently ignoring them
-func dbExec(query string, args ...any) {
+// dbExec logs errors and returns them so callers can decide.
+func dbExec(query string, args ...any) error {
 	if _, err := db.Exec(query, args...); err != nil {
-		log.Printf("WARN: db %q: %v", query[:50], err)
+		log.Printf("WARN: db %q: %v", query[:min(50, len(query))], err)
+		return err
 	}
+	return nil
 }
 
 func concatWAVs(wavs [][]byte) []byte {
@@ -840,6 +854,7 @@ func handleSwitchModel(w http.ResponseWriter, r *http.Request) {
 
 	execStart := strings.Join(cmdParts, " ")
 
+	svcWriteMu.Lock()
 	svcPath := "/etc/systemd/system/crispasr.service"
 	content, err := os.ReadFile(svcPath)
 	if err != nil {
@@ -864,10 +879,12 @@ WantedBy=multi-user.target
 
 		tmp := svcPath + ".tmp"
 		if err := os.WriteFile(tmp, []byte(svcContent), 0644); err != nil {
+			svcWriteMu.Unlock()
 			sendJSON(w, 500, map[string]string{"error": "创建服务文件失败: " + err.Error()})
 			return
 		}
 		if err := os.Rename(tmp, svcPath); err != nil {
+			svcWriteMu.Unlock()
 			sendJSON(w, 500, map[string]string{"error": "写入服务文件失败: " + err.Error()})
 			return
 		}
@@ -878,16 +895,19 @@ WantedBy=multi-user.target
 		if newContent != string(content) {
 			tmp := svcPath + ".tmp"
 			if err := os.WriteFile(tmp, []byte(newContent), 0644); err != nil {
+				svcWriteMu.Unlock()
 				sendJSON(w, 500, map[string]string{"error": "写入服务文件失败"})
 				return
 			}
 			if err := os.Rename(tmp, svcPath); err != nil {
+				svcWriteMu.Unlock()
 				sendJSON(w, 500, map[string]string{"error": "更新服务文件失败"})
 				return
 			}
 			exec.Command("systemctl", "daemon-reload").Run()
 		}
 	}
+	svcWriteMu.Unlock()
 	exec.Command("systemctl", "restart", "crispasr").Run()
 	dbSetSetting("current_model", body.Model)
 
@@ -1840,13 +1860,44 @@ func main() {
 	log.Fatal(http.ListenAndServe(addr, cors(mux)))
 }
 
+var allowedOrigins = map[string]bool{
+	"http://localhost:8888": true,
+	"http://127.0.0.1:8888": true,
+}
+
+func isOriginAllowed(origin string) bool {
+	if allowedOrigins[origin] {
+		return true
+	}
+	// Allow private IPs on port 8888 (LAN access)
+	if strings.HasPrefix(origin, "http://") || strings.HasPrefix(origin, "https://") {
+		hostPort := origin[strings.Index(origin, "://")+3:]
+		host, port, _ := strings.Cut(hostPort, ":")
+		if port == "8888" || port == "" {
+			if strings.HasPrefix(host, "10.") || strings.HasPrefix(host, "172.16.") ||
+				strings.HasPrefix(host, "172.17.") || strings.HasPrefix(host, "172.18.") ||
+				strings.HasPrefix(host, "172.19.") || strings.HasPrefix(host, "172.2") ||
+				strings.HasPrefix(host, "172.30.") || strings.HasPrefix(host, "172.31.") ||
+				strings.HasPrefix(host, "192.168.") || host == "localhost" || host == "127.0.0.1" || host == "[::1]" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
 		if origin == "" {
-			origin = "*"
+			// Same-origin requests (no Origin header) — allow
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		} else if isOriginAllowed(origin) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else {
+			// Unknown origin: block CORS but still serve (browser rejects)
+			w.Header().Set("Access-Control-Allow-Origin", "null")
 		}
-		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 		if r.Method == "OPTIONS" {

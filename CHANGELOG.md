@@ -1,5 +1,18 @@
 # Changelog
 
+## v1.3.1 (2026-06-29)
+
+### 🔒 Security Fixes
+
+- **CORS origin whitelist** — Only allow localhost and private IPs (10.x, 172.16-31.x, 192.168.x). Unknown origins get `Access-Control-Allow-Origin: null` instead of being reflected back. Prevents credential leakage if `Access-Control-Allow-Credentials` is ever added.
+- **JWT input validation** — Verify all JWT parts are well-formed base64url before HMAC comparison. Rejects malformed tokens early.
+- **Service file write mutex** — `handleSwitchModel` now serializes writes to `/etc/systemd/system/crispasr.service` with `svcWriteMu`, preventing concurrent model switches from corrupting the unit file.
+- **Auto-stop TOCTOU** — `scheduleCrispASRStop` re-checks `crispASRState == "running"` inside the timer callback, closing a race window where a task could arrive between the queue check and the stop command.
+
+### 🔧 Improvements
+
+- **`dbExec` now returns `error`** — Callers can decide whether to handle or ignore. Previously errors were only logged.
+
 ## v1.3.0 (2026-06-29)
 
 ### 🏗️ Architecture: WebUI / CrispASR Separation
