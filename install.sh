@@ -130,16 +130,6 @@ ok "WebUI built: ${WEBUI_BIN} ($(du -h "${WEBUI_BIN}" | cut -f1))"
 # ─── Create directories ───────────────────────────────────
 mkdir -p "${DATA_DIR}/audio" "${DATA_DIR}/uploads" "${INSTALL_DIR}/voices"
 
-# ─── Create system user ───────────────────────────────────
-if [ "$OS" = "linux" ] && command -v useradd >/dev/null 2>&1; then
-    if ! id "$WEBUI_USER" >/dev/null 2>&1; then
-        info "Creating system user: ${WEBUI_USER}"
-        useradd --system --create-home --home-dir "/home/${WEBUI_USER}" \
-            --shell /usr/sbin/nologin "$WEBUI_USER" 2>/dev/null || true
-    fi
-    chown -R "${WEBUI_USER}:${WEBUI_USER}" "${DATA_DIR}" "${INSTALL_DIR}/voices" "${INSTALL_DIR}/static" 2>/dev/null || true
-fi
-
 # ─── Write config ─────────────────────────────────────────
 ENV_FILE="/etc/tts-webui.env"
 cat > "$ENV_FILE" << ENVEOF
@@ -163,7 +153,6 @@ After=network.target
 
 [Service]
 Type=simple
-User=${WEBUI_USER}
 WorkingDirectory=${INSTALL_DIR}
 EnvironmentFile=${ENV_FILE}
 ExecStart=${WEBUI_BIN}

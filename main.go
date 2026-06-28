@@ -479,7 +479,7 @@ func ensureCrispASRRunning() error {
 	crispASRState = "starting"
 
 	// Try starting the service
-	startErr := exec.Command("sudo", "systemctl", "start", "crispasr").Run()
+	startErr := exec.Command("systemctl", "start", "crispasr").Run()
 	if startErr != nil {
 		crispASRState = "stopped"
 		return fmt.Errorf("CrispASR 未安装或启动失败，请在「更新」面板中安装 CrispASR (%w)", startErr)
@@ -547,7 +547,7 @@ func scheduleCrispASRStop() {
 
 		log.Printf("AUTO: CrispASR idle for %v, stopping...", cfg.IdleTimeout)
 		crispASRState = "stopping"
-		if err := exec.Command("sudo", "systemctl", "stop", "crispasr").Run(); err != nil {
+		if err := exec.Command("systemctl", "stop", "crispasr").Run(); err != nil {
 			log.Printf("AUTO: Failed to stop crispasr: %v", err)
 			crispASRState = "running"
 			return
@@ -871,8 +871,8 @@ WantedBy=multi-user.target
 			sendJSON(w, 500, map[string]string{"error": "写入服务文件失败: " + err.Error()})
 			return
 		}
-		exec.Command("sudo", "systemctl", "daemon-reload").Run()
-		exec.Command("sudo", "systemctl", "enable", "crispasr").Run()
+		exec.Command("systemctl", "daemon-reload").Run()
+		exec.Command("systemctl", "enable", "crispasr").Run()
 	} else {
 		newContent := reExecStart.ReplaceAllString(string(content), "ExecStart="+execStart)
 		if newContent != string(content) {
@@ -885,10 +885,10 @@ WantedBy=multi-user.target
 				sendJSON(w, 500, map[string]string{"error": "更新服务文件失败"})
 				return
 			}
-			exec.Command("sudo", "systemctl", "daemon-reload").Run()
+			exec.Command("systemctl", "daemon-reload").Run()
 		}
 	}
-	exec.Command("sudo", "systemctl", "restart", "crispasr").Run()
+	exec.Command("systemctl", "restart", "crispasr").Run()
 	dbSetSetting("current_model", body.Model)
 
 	msg := "已切换到 " + info.Desc
@@ -922,12 +922,7 @@ func findCrispASR() string {
 	return "crispasr"
 }
 
-func runUser() string {
-	if u := os.Getenv("USER"); u != "" {
-		return u
-	}
-	return "crispasr"
-}
+func runUser() string { return "root" }
 
 func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	var body struct {
