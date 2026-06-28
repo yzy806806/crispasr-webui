@@ -187,6 +187,12 @@ if [ "$_do_install" = "1" ]; then
         cp "${SRC_DIR}/build/bin/crispasr" "${BINARY_DIR}/crispasr"
         cp "${SRC_DIR}/build/bin/crispasr-quantize" "${BINARY_DIR}/crispasr-quantize" 2>/dev/null || true
         chmod +x "${BINARY_DIR}/crispasr" "${BINARY_DIR}/crispasr-quantize" 2>/dev/null || true
+
+        # Copy shared libraries (required by the binary)
+        mkdir -p "${BINARY_DIR}/../lib"
+        find "${SRC_DIR}/build" -name '*.so*' -type f 2>/dev/null | while read -r so; do
+            cp "$so" "${BINARY_DIR}/../lib/" && chmod +x "${BINARY_DIR}/../lib/$(basename "$so")"
+        done
     else
         # ── x86_64 / macOS: use prebuilt binary ──
         DOWNLOAD_URL="https://github.com/CrispStrobe/CrispASR/releases/download/${LATEST_TAG}/${ASSET}"
@@ -341,6 +347,7 @@ Type=simple
 User=${WEBUI_USER}
 WorkingDirectory=${INSTALL_DIR}
 ExecStart=${BINARY_DIR}/crispasr --server --backend ${BACKEND} -m ${MODEL_FLAG} ${QUANT_FLAG} --voice-dir ${INSTALL_DIR}/voices --host 127.0.0.1 --port ${CRISPASR_PORT} -t ${THREADS} ${GPU_FLAGS}
+Environment=LD_LIBRARY_PATH=${INSTALL_DIR}/lib
 Restart=on-failure
 RestartSec=10
 StandardOutput=journal
