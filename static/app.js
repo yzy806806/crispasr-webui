@@ -236,27 +236,77 @@ async function loadModelList() {
       const descSpan = document.createElement('div');
       descSpan.className = 'model-desc';
       descSpan.textContent = m.description || '';
+      // Show available quants
+      if (m.quant_options && m.quant_options.length) {
+        const quantSpan = document.createElement('div');
+        quantSpan.className = 'model-quant-hint';
+        quantSpan.textContent = '量化: ' + m.quant_options.map(q => q.tag).join(' | ');
+        descSpan.appendChild(quantSpan);
+      }
       const wrapper = document.createElement('div');
       wrapper.appendChild(nameSpan);
       wrapper.appendChild(descSpan);
       div.appendChild(wrapper);
-      div.onclick = () => switchModel(m.key);
+      div.onclick = () => switchModelDialog(m);
       list.appendChild(div);
     });
   } catch(e) { console.error(e); }
 }
 
-async function switchModel(key) {
-  if (!confirm(`切换到 ${key}？CrispASR服务将重启约10-20秒。`)) return;
+// Show a dialog to pick quantization before switching
+function switchModelDialog(m) {
+  const quants = m.quant_options || [];
+  if (quants.length <= 1) {
+    // No quant choice — switch directly
+    const quant = quants.length === 1 ? quants[0].tag : (m.default_quant || '');
+    if (!confirm(`切换到 ${m.key}？CrispASR服务将重启约10-20秒。`)) return;
+    doSwitchModel(m.key, quant);
+    return;
+  }
+  // Build a simple prompt with quant options
+  let msg = `选择 ${m.key} 的量化级别：\n\n`;
+  quants.forEach((q, i) => {
+    msg += `  ${i + 1}. ${q.tag} — ${q.desc}\n`;
+  });
+  msg += `\n输入数字 (1-${quants.length})，或取消：`;
+  const choice = prompt(msg, '1');
+  if (choice === null) return;
+  const idx = parseInt(choice) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= quants.length) {
+    alert('无效选择');
+    return;
+  }
+  const quant = quants[idx].tag;
+  if (!confirm(`确认切换到 ${m.key} (${quant})？\nCrispASR服务将重启约10-20秒。`)) return;
+  doSwitchModel(m.key, quant);
+}
+
+async function doSwitchModel(key, quant) {
   try {
+    const body = { model: key };
+    if (quant) body.quant = quant;
     const resp = await apiFetch('/api/model/switch', {
       method: 'POST',
-      body: JSON.stringify({model: key}),
+      body: JSON.stringify(body),
     });
     const data = await resp.json();
     alert(data.message);
     if (data.success) loadModelInfo();
   } catch(e) { alert('切换失败: ' + e.message); }
+}
+
+// Keep old function for backward compat (no quant)
+async function switchModel(key) {
+  // Find model info to get default quant
+  try {
+    const resp = await apiFetch('/api/models');
+    const models = await resp.json();
+    const m = models.find(x => x.key === key);
+    if (m) { switchModelDialog(m); return; }
+  } catch(e) {}
+  // Fallback
+  if (!confirm(`切换到 ${key}？CrispASR服务将重启约10-20秒。`)) return;
+  doSwitchModel(key, '');
 }
 
 // ─── CrispASR Update ──────────────────

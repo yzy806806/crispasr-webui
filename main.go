@@ -107,36 +107,96 @@ func envOr(key, fallback string) string {
 
 // ─── Model Registry ─────────────────────────────────────
 
+// QuantOption represents an available quantization level for a model.
+type QuantOption struct {
+	Tag  string `json:"tag"`  // e.g. "f16", "q8_0", "q4_k_m"
+	Desc string `json:"desc"` // e.g. "F16 — best quality, ~4 GB"
+}
+
 type ModelInfo struct {
-	Backend     string   `json:"backend"`
-	ModelFlag   string   `json:"model_flag"`
-	Voices      []string `json:"voices"`
-	HasInstruct bool     `json:"has_instruct"`
-	HasClone    bool     `json:"has_clone"`
-	HasStream   bool     `json:"has_streaming"`
-	Desc        string   `json:"description"`
-	AutoDL      bool     `json:"auto_dl"`
+	Backend      string        `json:"backend"`
+	ModelFlag    string        `json:"model_flag"`
+	Voices       []string      `json:"voices"`
+	HasInstruct  bool          `json:"has_instruct"`
+	HasClone     bool          `json:"has_clone"`
+	HasStream    bool          `json:"has_streaming"`
+	Desc         string        `json:"description"`
+	AutoDL       bool          `json:"auto_dl"`
+	QuantOptions []QuantOption `json:"quant_options"` // available quants (empty = single default)
+	DefaultQuant string        `json:"default_quant"` // empty = let crispasr pick
 }
 
 var models = map[string]ModelInfo{
-	"qwen3-tts-customvoice-1.7b-f16": {"qwen3-tts-customvoice", "qwen3-tts-1.7b-customvoice",
-		[]string{"serena", "vivian", "sohee", "ono_anna", "aiden", "dylan", "eric", "ryan", "uncle_fu"},
-		true, true, false, "1.7B CustomVoice — 9 speakers + style + clone", true},
-	"qwen3-tts-customvoice-0.6b-q8": {"qwen3-tts-customvoice", "qwen3-tts-0.6b-customvoice",
-		[]string{"serena", "vivian", "sohee", "ono_anna", "aiden", "dylan", "eric", "ryan", "uncle_fu"},
-		true, true, false, "0.6B CustomVoice Q8 — lighter, same 9 speakers", true},
-	"qwen3-tts-base-1.7b": {"qwen3-tts", "qwen3-tts-1.7b-base",
-		[]string{}, false, true, true, "1.7B Base — streaming output, WAV clone", true},
-	"qwen3-tts-voicedesign-1.7b": {"qwen3-tts-customvoice", "qwen3-tts-1.7b-voicedesign",
-		[]string{}, true, false, false, "1.7B VoiceDesign — describe voice via instruct", true},
-	"kokoro": {"kokoro", "kokoro",
-		[]string{"af_bella", "af_nicole", "af_sarah", "af_sky", "am_adam", "am_michael"},
-		false, false, false, "Kokoro 82M — lightweight multilingual", true},
-	"cosyvoice3-tts": {"cosyvoice3-tts", "cosyvoice3-tts",
-		[]string{"zero_shot", "fleurs-en", "fleurs-de", "fleurs-zh", "fleurs-ja", "fleurs-fr", "fleurs-es", "fleurs-ko"},
-		false, true, false, "CosyVoice3 0.5B — 9 languages + clone", true},
-	"chatterbox": {"chatterbox", "chatterbox",
-		[]string{"default"}, false, true, false, "Chatterbox — 23 languages, emotion tags", true},
+	"qwen3-tts-customvoice-1.7b-f16": {
+		Backend: "qwen3-tts-customvoice", ModelFlag: "qwen3-tts-1.7b-customvoice",
+		Voices: []string{"serena", "vivian", "sohee", "ono_anna", "aiden", "dylan", "eric", "ryan", "uncle_fu"},
+		HasInstruct: true, HasClone: true, HasStream: false,
+		Desc: "1.7B CustomVoice — 9 speakers + style + clone",
+		AutoDL: true,
+		QuantOptions: []QuantOption{
+			{"f16", "F16 — best quality, ~4 GB"},
+			{"q8_0", "Q8 — good quality, ~2 GB"},
+			{"q4_k_m", "Q4_K_M — smaller, ~1.5 GB"},
+		},
+		DefaultQuant: "f16",
+	},
+	"qwen3-tts-customvoice-0.6b-q8": {
+		Backend: "qwen3-tts-customvoice", ModelFlag: "qwen3-tts-0.6b-customvoice",
+		Voices: []string{"serena", "vivian", "sohee", "ono_anna", "aiden", "dylan", "eric", "ryan", "uncle_fu"},
+		HasInstruct: true, HasClone: true, HasStream: false,
+		Desc: "0.6B CustomVoice — lighter, same 9 speakers",
+		AutoDL: true,
+		QuantOptions: []QuantOption{
+			{"q8_0", "Q8 — ~1.2 GB"},
+			{"q4_k_m", "Q4_K_M — ~800 MB"},
+		},
+		DefaultQuant: "q8_0",
+	},
+	"qwen3-tts-base-1.7b": {
+		Backend: "qwen3-tts", ModelFlag: "qwen3-tts-1.7b-base",
+		Voices: []string{},
+		HasInstruct: false, HasClone: true, HasStream: true,
+		Desc: "1.7B Base — streaming output, WAV clone",
+		AutoDL: true,
+		QuantOptions: []QuantOption{
+			{"f16", "F16 — best, ~4 GB"},
+			{"q8_0", "Q8 — ~2 GB"},
+		},
+		DefaultQuant: "f16",
+	},
+	"qwen3-tts-voicedesign-1.7b": {
+		Backend: "qwen3-tts-customvoice", ModelFlag: "qwen3-tts-1.7b-voicedesign",
+		Voices: []string{},
+		HasInstruct: true, HasClone: false, HasStream: false,
+		Desc: "1.7B VoiceDesign — describe voice via instruct",
+		AutoDL: true,
+		QuantOptions: []QuantOption{
+			{"f16", "F16 — best, ~4 GB"},
+			{"q8_0", "Q8 — ~2 GB"},
+		},
+		DefaultQuant: "f16",
+	},
+	"kokoro": {
+		Backend: "kokoro", ModelFlag: "kokoro",
+		Voices: []string{"af_bella", "af_nicole", "af_sarah", "af_sky", "am_adam", "am_michael"},
+		HasInstruct: false, HasClone: false, HasStream: false,
+		Desc: "Kokoro 82M — lightweight multilingual",
+		AutoDL: true,
+	},
+	"cosyvoice3-tts": {
+		Backend: "cosyvoice3-tts", ModelFlag: "cosyvoice3-tts",
+		Voices: []string{"zero_shot", "fleurs-en", "fleurs-de", "fleurs-zh", "fleurs-ja", "fleurs-fr", "fleurs-es", "fleurs-ko"},
+		HasInstruct: false, HasClone: true, HasStream: false,
+		Desc: "CosyVoice3 0.5B — 9 languages + clone",
+		AutoDL: true,
+	},
+	"chatterbox": {
+		Backend: "chatterbox", ModelFlag: "chatterbox",
+		Voices: []string{"default"},
+		HasInstruct: false, HasClone: true, HasStream: false,
+		Desc: "Chatterbox — 23 languages, emotion tags",
+		AutoDL: true,
+	},
 }
 
 // ─── JSON helpers ────────────────────────────────────────
@@ -728,7 +788,8 @@ func handleModel(w http.ResponseWriter, r *http.Request) {
 	}
 	sendJSON(w, 200, map[string]any{"key": key, "backend": info.Backend, "model_flag": info.ModelFlag,
 		"voices": info.Voices, "has_instruct": info.HasInstruct, "has_clone": info.HasClone,
-		"has_streaming": info.HasStream, "description": info.Desc, "auto_dl": info.AutoDL})
+		"has_streaming": info.HasStream, "description": info.Desc, "auto_dl": info.AutoDL,
+		"quant_options": info.QuantOptions, "default_quant": info.DefaultQuant})
 }
 
 func handleModels(w http.ResponseWriter, r *http.Request) {
@@ -736,13 +797,17 @@ func handleModels(w http.ResponseWriter, r *http.Request) {
 	for k, v := range models {
 		list = append(list, map[string]any{"key": k, "backend": v.Backend, "model_flag": v.ModelFlag,
 			"voices": v.Voices, "has_instruct": v.HasInstruct, "has_clone": v.HasClone,
-			"has_streaming": v.HasStream, "description": v.Desc, "auto_dl": v.AutoDL})
+			"has_streaming": v.HasStream, "description": v.Desc, "auto_dl": v.AutoDL,
+			"quant_options": v.QuantOptions, "default_quant": v.DefaultQuant})
 	}
 	sendJSON(w, 200, list)
 }
 
 func handleSwitchModel(w http.ResponseWriter, r *http.Request) {
-	var body struct{ Model string `json:"model"` }
+	var body struct {
+		Model string `json:"model"`
+		Quant string `json:"quant"` // optional quantization override
+	}
 	if readJSON(r, &body) != nil {
 		sendJSON(w, 400, map[string]string{"error": "无效请求"})
 		return
@@ -754,7 +819,18 @@ func handleSwitchModel(w http.ResponseWriter, r *http.Request) {
 	}
 	binary := findCrispASR()
 	cmdParts := []string{binary, "--server", "--backend", info.Backend, "-m", info.ModelFlag,
-		"--voice-dir", filepath.Join(cfg.CrispASRDir, "voices"), "--port", "8080", "--host", "127.0.0.1"}
+		"--auto-download", "--voice-dir", filepath.Join(cfg.CrispASRDir, "voices"),
+		"--port", "8080", "--host", "127.0.0.1"}
+
+	// Add quant flag if specified, or use model's default
+	quant := body.Quant
+	if quant == "" {
+		quant = info.DefaultQuant
+	}
+	if quant != "" {
+		cmdParts = append(cmdParts, "--model-quant", quant)
+	}
+
 	execStart := strings.Join(cmdParts, " ")
 
 	svcPath := "/etc/systemd/system/crispasr.service"
@@ -777,7 +853,12 @@ func handleSwitchModel(w http.ResponseWriter, r *http.Request) {
 	exec.Command("sudo", "systemctl", "daemon-reload").Run()
 	exec.Command("sudo", "systemctl", "restart", "crispasr").Run()
 	dbSetSetting("current_model", body.Model)
-	sendJSON(w, 200, map[string]any{"success": true, "model": body.Model, "message": "已切换到 " + info.Desc})
+
+	msg := "已切换到 " + info.Desc
+	if quant != "" {
+		msg += " (" + quant + ")"
+	}
+	sendJSON(w, 200, map[string]any{"success": true, "model": body.Model, "quant": quant, "message": msg})
 }
 
 func findCrispASR() string {
