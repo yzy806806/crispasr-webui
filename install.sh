@@ -37,10 +37,12 @@ _CLEANUP_DIRS=()
 _cleanup() { local d; for d in "${_CLEANUP_DIRS[@]}"; do rm -rf "$d" 2>/dev/null; done; }
 trap _cleanup EXIT
 
+# _mktemp_value: populated by _mktemp, consumed immediately after call.
+# Do NOT use in a subshell $() — EXIT trap would delete the dir before caller sees it.
+_mktemp_value=""
 _mktemp() {
-    local d; d="$(mktemp -d)" || die "Cannot create temp dir"
-    _CLEANUP_DIRS+=("$d")
-    echo "$d"
+    _mktemp_value="$(mktemp -d)" || die "Cannot create temp dir"
+    _CLEANUP_DIRS+=("$_mktemp_value")
 }
 
 # ─── Package manager helpers ──────────────────────────────
@@ -172,7 +174,7 @@ if [ "$_do_install" = "1" ]; then
         _ensure_cmd g++ gcc-c++
         _ensure_cmd make
 
-        SRC_DIR="$(_mktemp)"
+        _mktemp && SRC_DIR="$_mktemp_value"
         info "Cloning CrispASR ${LATEST_TAG}..."
         git clone --depth 1 --branch "${LATEST_TAG}" https://github.com/CrispStrobe/CrispASR "${SRC_DIR}"
 
@@ -189,7 +191,7 @@ if [ "$_do_install" = "1" ]; then
         # ── x86_64 / macOS: use prebuilt binary ──
         DOWNLOAD_URL="https://github.com/CrispStrobe/CrispASR/releases/download/${LATEST_TAG}/${ASSET}"
         info "Downloading ${ASSET}..."
-        TMPDIR="$(_mktemp)"
+        _mktemp && TMPDIR="$_mktemp_value"
 
         curl -fSL --progress-bar -o "${TMPDIR}/${ASSET}" "${DOWNLOAD_URL}" \
             || die "Download failed: ${DOWNLOAD_URL}"
@@ -221,7 +223,7 @@ WEBUI_BIN="${INSTALL_DIR}/bin/crispasr-webui"
 # Install Go if missing
 if ! command -v go >/dev/null 2>&1; then
     info "Go not found, installing Go 1.24..."
-    GO_TMP="$(_mktemp)"
+    _mktemp && GO_TMP="$_mktemp_value"
     curl -fSL "https://go.dev/dl/go1.24.4.${OS}-${ARCH_TAG}.tar.gz" | tar -C /usr/local -xzf -
     export PATH="$PATH:/usr/local/go/bin"
     ok "Go 1.24.4 installed"
