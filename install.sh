@@ -187,7 +187,7 @@ fi
 # ─── Write password file ──────────────────────────────────
 ENV_FILE="/etc/tts-webui.env"
 if [ "$OS" = "linux" ]; then
-    cat > "$ENV_FILE" << 'ENVEOF'
+    cat > "$ENV_FILE" << ENVEOF
 TTS_PASSWORD=${TTS_PASSWORD}
 CRISPASR_DIR=${INSTALL_DIR}
 CRISPASR_DATA_DIR=${DATA_DIR}
