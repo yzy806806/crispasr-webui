@@ -82,8 +82,9 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .chunk-audition:hover{opacity:.9}
 .chunk-num{color:var(--accent2);font-weight:600;margin-right:4px}
 
-/* Queue status */
-.queue-badge{display:inline-block;background:var(--warn);color:#fff;font-size:11px;padding:2px 8px;border-radius:10px;margin-left:8px}
+/* Search input (shared by history + logs) */
+.search-input{flex:1;min-width:180px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px}
+.search-input:focus{outline:none;border-color:var(--accent)}
 
 /* Progress */
 .progress-bar{height:4px;background:var(--border);border-radius:2px;margin:12px 0;overflow:hidden}
@@ -98,8 +99,6 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 
 /* History */
 .history-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap}
-.history-search{flex:1;min-width:180px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px}
-.history-search:focus{outline:none;border-color:var(--accent)}
 .history-checkall{margin-right:4px;cursor:pointer}
 .history-item{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:var(--card);gap:8px}
 .history-item:hover{border-color:var(--accent)}
@@ -126,8 +125,6 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 
 /* Logs */
 .logs-toolbar{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
-.logs-search{flex:1;min-width:180px;padding:6px 12px;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-size:13px}
-.logs-search:focus{outline:none;border-color:var(--accent)}
 .logs-terminal{background:#0d1117;color:#c9d1d9;font-family:'Courier New',monospace;font-size:12px;line-height:1.5;padding:12px;border-radius:8px;max-height:400px;overflow-y:auto;white-space:pre-wrap;word-break:break-all}
 .logs-terminal::-webkit-scrollbar{width:6px}
 .logs-terminal::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -65,12 +66,26 @@ type Config struct {
 	JWTSecret        string
 	JWTExpiry        int
 	Port             int
-	Password         string
+	password         string        // protected by passwordMu
 	MaxBody          int64
 	MaxUpload        int64
 	AutoStartStop    bool          // enable crispasr auto start/stop
 	IdleTimeout      time.Duration // idle duration before auto-stop
 	CrispASRPort     string        // crispasr port for health check
+}
+
+var passwordMu sync.RWMutex
+
+func (c *Config) getPassword() string {
+	passwordMu.RLock()
+	defer passwordMu.RUnlock()
+	return c.password
+}
+
+func (c *Config) setPassword(p string) {
+	passwordMu.Lock()
+	defer passwordMu.Unlock()
+	c.password = p
 }
 
 var cfg Config
@@ -82,13 +97,13 @@ func initConfig() {
 		JWTSecret:     envOr("JWT_SECRET", ""),
 		JWTExpiry:     604800,
 		Port:          8888,
-		Password:      defaultPassword, // loaded from DB in loadPassword() if exists
 		MaxBody:       10 << 20,
 		MaxUpload:     10 << 20,
 		AutoStartStop: envOr("CRISPASR_AUTOSTART", "1") == "1",
 		IdleTimeout:   crispASRIdleTimeout,
 		CrispASRPort:  envOr("CRISPASR_PORT", "8080"),
 	}
+	cfg.setPassword(defaultPassword)
 	if p := envOr("TTS_PORT", ""); p != "" {
 		cfg.Port, _ = strconv.Atoi(p)
 	}
@@ -320,7 +335,7 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 400, map[string]string{"error": "无效请求"})
 		return
 	}
-	if !hmac.Equal([]byte(body.OldPassword), []byte(cfg.Password)) {
+	if !hmac.Equal([]byte(body.OldPassword), []byte(cfg.getPassword())) {
 		sendJSON(w, 401, map[string]string{"error": "原密码错误"})
 		return
 	}
@@ -328,7 +343,7 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 400, map[string]string{"error": "新密码至少4位"})
 		return
 	}
-	cfg.Password = body.NewPassword
+	cfg.setPassword(body.NewPassword)
 	dbSetSetting("password", body.NewPassword)
 	sendJSON(w, 200, map[string]string{"message": "密码已修改"})
 }
@@ -357,7 +372,7 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 400, map[string]string{"error": "无效请求"})
 		return
 	}
-	if !hmac.Equal([]byte(body.Password), []byte(cfg.Password)) {
+	if !hmac.Equal([]byte(body.Password), []byte(cfg.getPassword())) {
 		sendJSON(w, 401, map[string]string{"error": "密码错误"})
 		return
 	}
@@ -591,6 +606,7 @@ func queueLoop() {
 			taskCond.Wait()
 		}
 		active = queue[0]
+		queue[0] = nil // allow GC of the pointer
 		queue = queue[1:]
 		for i, t := range queue {
 			t.QueuePos = i
@@ -655,9 +671,10 @@ func processTask(t *Task) {
 		})
 		if instruct != "" {
 			var p map[string]any
-			json.Unmarshal(payload, &p)
-			p["instruct"] = instruct
-			payload, _ = json.Marshal(p)
+			if json.Unmarshal(payload, &p) == nil {
+				p["instruct"] = instruct
+				payload, _ = json.Marshal(p)
+			}
 		}
 
 		req, _ := http.NewRequest("POST", t.APBase+"/v1/audio/speech", strings.NewReader(string(payload)))
@@ -666,6 +683,15 @@ func processTask(t *Task) {
 		if err != nil {
 			t.Status = "error"
 			t.Error = err.Error()
+			dbExec("UPDATE history SET status='error' WHERE id=?", t.ID)
+			return
+		}
+		if resp.StatusCode != 200 {
+			body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+			resp.Body.Close()
+			errMsg := fmt.Sprintf("CrispASR returned %d: %s", resp.StatusCode, string(body))
+			t.Status = "error"
+			t.Error = errMsg
 			dbExec("UPDATE history SET status='error' WHERE id=?", t.ID)
 			return
 		}
@@ -839,13 +865,7 @@ func handleSwitchModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	binary := findCrispASR()
-	// Determine thread count
-	threads := 2
-	if n, _ := exec.Command("nproc").Output(); len(n) > 0 {
-		if t, _ := strconv.Atoi(strings.TrimSpace(string(n))); t > 2 {
-			threads = t / 2
-		}
-	}
+	threads := cpuThreads
 	cmdParts := []string{binary, "--server", "--backend", info.Backend, "-m", info.ModelFlag,
 		"--auto-download", "--voice-dir", filepath.Join(cfg.CrispASRDir, "voices"),
 		"--port", "8080", "--host", "127.0.0.1", "-t", strconv.Itoa(threads)}
@@ -854,6 +874,20 @@ func handleSwitchModel(w http.ResponseWriter, r *http.Request) {
 	quant := body.Quant
 	if quant == "" {
 		quant = info.DefaultQuant
+	}
+	// Validate quant against allowed options to prevent injection
+	if quant != "" && len(info.QuantOptions) > 0 {
+		valid := false
+		for _, q := range info.QuantOptions {
+			if q.Tag == quant {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			sendJSON(w, 400, map[string]string{"error": "不支持的量化选项: " + quant})
+			return
+		}
 	}
 	if quant != "" {
 		cmdParts = append(cmdParts, "--model-quant", quant)
@@ -984,12 +1018,20 @@ func handleTaskStatus(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/task/")
 	queueMu.Lock()
 	t, ok := taskMap[id]
-	queueMu.Unlock()
 	if !ok {
+		queueMu.Unlock()
 		sendJSON(w, 404, map[string]string{"error": "任务不存在"})
 		return
 	}
-	sendJSON(w, 200, t)
+	// Copy task fields under lock to avoid race with processTask mutations
+	snapshot := Task{
+		ID: t.ID, Status: t.Status, Progress: t.Progress,
+		Current: t.Current, Total: t.Total, AudioURL: t.AudioURL,
+		Error: t.Error, Duration: t.Duration, QueuePos: t.QueuePos,
+		Voice: t.Voice, Instruct: t.Instruct, Speed: t.Speed, Fmt: t.Fmt,
+	}
+	queueMu.Unlock()
+	sendJSON(w, 200, snapshot)
 }
 
 func handleSplit(w http.ResponseWriter, r *http.Request) {
@@ -1094,14 +1136,26 @@ func handleDeleteHistory(w http.ResponseWriter, r *http.Request) {
 			sendJSON(w, 400, map[string]string{"error": "无效请求"})
 			return
 		}
-		for _, id := range body.IDs {
-			var audioFile string
-			db.QueryRow("SELECT audio_file FROM history WHERE id=?", id).Scan(&audioFile)
-			if audioFile != "" {
-				os.Remove(filepath.Join(cfg.DataDir, "audio", filepath.Base(audioFile)))
-			}
-			dbExec("DELETE FROM history WHERE id=?", id)
+		// Single query to get all audio files, then single DELETE
+		placeholders := make([]string, len(body.IDs))
+		args := make([]any, len(body.IDs))
+		for i, id := range body.IDs {
+			placeholders[i] = "?"
+			args[i] = id
 		}
+		inClause := strings.Join(placeholders, ",")
+		rows, err := db.Query("SELECT audio_file FROM history WHERE id IN("+inClause+")", args...)
+		if err == nil {
+			for rows.Next() {
+				var f string
+				rows.Scan(&f)
+				if f != "" {
+					os.Remove(filepath.Join(cfg.DataDir, "audio", filepath.Base(f)))
+				}
+			}
+			rows.Close()
+		}
+		dbExec("DELETE FROM history WHERE id IN("+inClause+")", args...)
 		sendJSON(w, 200, map[string]bool{"ok": true})
 		return
 	}
@@ -1142,8 +1196,10 @@ func handlePresets(w http.ResponseWriter, r *http.Request) {
 			var key, val string
 			rows.Scan(&key, &val)
 			name := strings.TrimPrefix(key, "preset:")
-			var data map[string]any
-			json.Unmarshal([]byte(val), &data)
+			data := map[string]any{}
+			if err := json.Unmarshal([]byte(val), &data); err != nil {
+				data = map[string]any{"text": "", "voice": "", "instruct": "", "speed": 1.0}
+			}
 			data["name"] = name
 			presets = append(presets, data)
 		}
@@ -1267,7 +1323,22 @@ func handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // cpuUsage reads /proc/stat twice to get accurate CPU percentage
-func cpuUsage() float64 {
+// Cached CPU usage — sampled by a background goroutine every 3s
+var (
+	cpuMu      sync.RWMutex
+	cpuCached  float64
+	cpuStarted bool
+)
+
+func startCpuMonitor() {
+	cpuMu.Lock()
+	if cpuStarted {
+		cpuMu.Unlock()
+		return
+	}
+	cpuStarted = true
+	cpuMu.Unlock()
+
 	readStat := func() (idle, total float64) {
 		if f, err := os.ReadFile("/proc/stat"); err == nil {
 			line := string(f)[:strings.IndexByte(string(f), '\n')]
@@ -1284,15 +1355,40 @@ func cpuUsage() float64 {
 		}
 		return
 	}
-	idle1, total1 := readStat()
-	time.Sleep(200 * time.Millisecond)
-	idle2, total2 := readStat()
-	dIdle := idle2 - idle1
-	dTotal := total2 - total1
-	if dTotal > 0 {
-		return (1 - dIdle/dTotal) * 100
+	go func() {
+		for {
+			idle1, total1 := readStat()
+			time.Sleep(500 * time.Millisecond)
+			idle2, total2 := readStat()
+			dIdle := idle2 - idle1
+			dTotal := total2 - total1
+			cpuMu.Lock()
+			if dTotal > 0 {
+				cpuCached = (1 - dIdle/dTotal) * 100
+			}
+			cpuMu.Unlock()
+			time.Sleep(2500 * time.Millisecond)
+		}
+	}()
+}
+
+func cpuUsage() float64 {
+	cpuMu.RLock()
+	v := cpuCached
+	cpuMu.RUnlock()
+	return v
+}
+
+// Cached CPU thread count — determined once at startup
+var cpuThreads int
+
+func initCpuThreads() {
+	cpuThreads = 2
+	if n, _ := exec.Command("nproc").Output(); len(n) > 0 {
+		if t, _ := strconv.Atoi(strings.TrimSpace(string(n))); t > 2 {
+			cpuThreads = t / 2
+		}
 	}
-	return 0
 }
 
 func handleVoices(w http.ResponseWriter, r *http.Request) {
@@ -1392,6 +1488,10 @@ func handleAudition(w http.ResponseWriter, r *http.Request) {
 		Speed    float64 `json:"speed"`
 	}
 	readJSON(r, &body)
+	if body.Text == "" {
+		sendJSON(w, 400, map[string]string{"error": "text不能为空"})
+		return
+	}
 	p := taskParams{voice: body.Voice, speed: body.Speed}
 	applyDefaults(&p)
 
@@ -1407,6 +1507,11 @@ func handleAudition(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		errBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		sendJSON(w, resp.StatusCode, map[string]string{"error": fmt.Sprintf("CrispASR error: %s", string(errBody))})
+		return
+	}
 	w.Header().Set("Content-Type", "audio/wav")
 	io.Copy(w, io.LimitReader(resp.Body, maxAudioSize))
 
@@ -1549,11 +1654,32 @@ func handleBatchMerge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Collect WAV data from each task in order
+	// Single query to fetch all audio files, then read in order
+	placeholders := make([]string, len(body.TaskIDs))
+	args := make([]any, len(body.TaskIDs))
+	for i, id := range body.TaskIDs {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	inClause := strings.Join(placeholders, ",")
+	// Build a map of id→audio_file from a single query
+	audioFiles := map[string]string{}
+	rows, err := db.Query("SELECT id, audio_file FROM history WHERE id IN("+inClause+")", args...)
+	if err != nil {
+		sendJSON(w, 500, map[string]string{"error": "查询失败"})
+		return
+	}
+	for rows.Next() {
+		var id, af string
+		rows.Scan(&id, &af)
+		audioFiles[id] = af
+	}
+	rows.Close()
+
 	var wavs [][]byte
 	for _, id := range body.TaskIDs {
-		var audioFile string
-		err := db.QueryRow("SELECT audio_file FROM history WHERE id=?", id).Scan(&audioFile)
-		if err != nil || audioFile == "" {
+		audioFile := audioFiles[id]
+		if audioFile == "" {
 			sendJSON(w, 400, map[string]string{"error": "任务 " + id + " 未找到或无音频"})
 			return
 		}
@@ -1725,22 +1851,6 @@ func handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, 200, map[string]string{"message": "设置已保存"})
 }
 
-// copyFile copies a file from src to dst, creating or overwriting dst.
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
-	if err != nil {
-		return err
-	}
-	_, err = io.Copy(out, in)
-	out.Close()
-	return err
-}
-
 func handleResumable(w http.ResponseWriter, r *http.Request) {
 	// Find the most recent incomplete task
 	var id, status string
@@ -1863,17 +1973,13 @@ func round(v float64, d int) float64 {
 	return float64(int(v*p+0.5)) / p
 }
 
-// safePath prevents path traversal by cleaning and basing the name
-func safePath(baseDir, name string) string {
-	return filepath.Join(baseDir, filepath.Base(filepath.Clean(name)))
-}
-
 // ─── Main ────────────────────────────────────────────────
 
 func main() {
 	initConfig()
+	initCpuThreads()
+	startCpuMonitor()
 
-	// Periodically clean up login rate-limit log
 	if cfg.JWTSecret == "" {
 		jwtPath := filepath.Join(cfg.DataDir, ".jwt_secret")
 		if data, err := os.ReadFile(jwtPath); err == nil && len(data) >= 32 {
@@ -1901,7 +2007,7 @@ func main() {
 
 	// Load password from DB (first run: persists default password)
 	if saved := dbSetting("password"); saved != "" {
-		cfg.Password = saved
+		cfg.setPassword(saved)
 	} else {
 		dbSetSetting("password", defaultPassword)
 	}
@@ -1969,7 +2075,8 @@ func main() {
 			return
 		}
 		name := strings.TrimPrefix(r.URL.Path, "/api/audio/")
-		if strings.Contains(name, "..") {
+		cleaned := filepath.Base(filepath.Clean(name))
+		if cleaned != name {
 			http.Error(w, "Forbidden", 403)
 			return
 		}
@@ -1986,7 +2093,8 @@ func main() {
 			return
 		}
 		name := strings.TrimPrefix(r.URL.Path, "/uploads/")
-		if strings.Contains(name, "..") {
+		cleaned := filepath.Base(filepath.Clean(name))
+		if cleaned != name {
 			http.Error(w, "Forbidden", 403)
 			return
 		}
@@ -2022,11 +2130,16 @@ func isOriginAllowed(origin string) bool {
 		hostPort := origin[strings.Index(origin, "://")+3:]
 		host, port, _ := strings.Cut(hostPort, ":")
 		if port == "8888" || port == "" {
-			if strings.HasPrefix(host, "10.") || strings.HasPrefix(host, "172.16.") ||
-				strings.HasPrefix(host, "172.17.") || strings.HasPrefix(host, "172.18.") ||
-				strings.HasPrefix(host, "172.19.") || strings.HasPrefix(host, "172.2") ||
-				strings.HasPrefix(host, "172.30.") || strings.HasPrefix(host, "172.31.") ||
-				strings.HasPrefix(host, "192.168.") || host == "localhost" || host == "127.0.0.1" || host == "[::1]" {
+			// Use net.ParseIP for accurate private-range check
+			// Strip IPv6 brackets
+			host = strings.Trim(host, "[]")
+			if ip := net.ParseIP(host); ip != nil {
+				if ip.IsPrivate() || ip.IsLoopback() {
+					return true
+				}
+			}
+			// Fallback for hostnames
+			if host == "localhost" {
 				return true
 			}
 		}

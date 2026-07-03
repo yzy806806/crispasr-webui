@@ -5,7 +5,7 @@ let currentAudioUrl = null;
 let currentFmt = 'wav';
 let taskId = null;
 let pollTimer = null;
-let uploadedVoice = null;
+let currentVoiceAudio = null;
 let chunksConfig = [];  // [{text, voice, instruct}, ...]
 
 // ─── Auth ─────────────────────────────
@@ -27,18 +27,20 @@ async function apiFetch(url, opts = {}) {
 
 // ─── Shared Helpers ───────────────────
 
+/** Toast color palette (module-level for reuse) */
+const toastColors = {
+  info:    { bg: '#3b82f6', icon: 'ℹ️' },
+  success: { bg: '#22c55e', icon: '✅' },
+  warn:    { bg: '#f59e0b', icon: '⚠️' },
+  error:   { bg: '#ef4444', icon: '❌' },
+};
+
 /** Toast notification system */
 function toast(msg, type = 'info', timeout = 4000) {
   const container = document.getElementById('toastContainer');
   if (!container) { alert(msg); return; }
   const el = document.createElement('div');
-  const colors = {
-    info:    { bg: '#3b82f6', icon: 'ℹ️' },
-    success: { bg: '#22c55e', icon: '✅' },
-    warn:    { bg: '#f59e0b', icon: '⚠️' },
-    error:   { bg: '#ef4444', icon: '❌' },
-  };
-  const c = colors[type] || colors.info;
+  const c = toastColors[type] || toastColors.info;
   el.style.cssText = `background:${c.bg};color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;pointer-events:auto;max-width:380px;word-break:break-word;animation:toastIn 0.2s ease`;
   el.innerHTML = `<span>${c.icon}</span><span>${escHtml(msg)}</span>`;
   container.appendChild(el);
@@ -187,7 +189,7 @@ async function submitChangePassword() {
     const data = await resp.json();
     if (resp.ok) {
       closeChangePassword();
-      alert('密码已修改，请重新登录');
+      toast('密码已修改，请重新登录', 'info');
       doLogout();
     } else {
       err.textContent = data.error || '修改失败'; err.style.display = 'block';
@@ -277,9 +279,9 @@ async function switchModel(key) {
       body: JSON.stringify({model: key}),
     });
     const data = await resp.json();
-    alert(data.message);
+    toast(data.message, data.success ? 'success' : 'info');
     if (data.success) loadModelInfo();
-  } catch(e) { alert('切换失败: ' + e.message); }
+  } catch(e) { toast('切换失败: ' + e.message, 'error'); }
 }
 
 // ─── CrispASR Update ──────────────────
@@ -460,8 +462,10 @@ async function auditionChunk(i) {
     });
     if (!resp.ok) throw new Error('试听失败');
     const blob = await resp.blob();
-    playAudioUrl(URL.createObjectURL(blob));
-  } catch(e) { alert('试听失败: ' + e.message); }
+    const url = URL.createObjectURL(blob);
+    playAudioUrl(url);
+    setTimeout(() => URL.revokeObjectURL(url), 30000);
+  } catch(e) { toast('试听失败: ' + e.message, 'error'); }
 }
 
 // ─── Resume ───────────────────────────
@@ -488,13 +492,13 @@ async function resumeGeneration() {
       document.getElementById('progressCard').style.display = 'block';
       pollProgress();
     }
-  } catch(e) { alert('恢复失败: ' + e.message); }
+  } catch(e) { toast('恢复失败: ' + e.message, 'error'); }
 }
 
 // ─── Generate ─────────────────────────
 async function generate() {
   const text = document.getElementById('textInput').value.trim();
-  if (!text) { alert('请输入文本'); return; }
+  if (!text) { toast('请输入文本', 'warn'); return; }
 
   const btn = document.getElementById('generateBtn');
   const progressCard = document.getElementById('progressCard');
@@ -542,18 +546,20 @@ async function generate() {
 }
 
 function pollProgress() {
-  if (pollTimer) clearInterval(pollTimer);
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  const myTaskId = taskId;
   let attempts = 0;
   pollTimer = setInterval(async () => {
     attempts++;
     if (attempts > 300) {
       clearInterval(pollTimer);
+      pollTimer = null;
       document.getElementById('progressText').textContent = '⏰ 生成超时，请重试';
       resetGenerateBtn();
       return;
     }
     try {
-      const resp = await apiFetch(`/api/task/${taskId}`);
+      const resp = await apiFetch(`/api/task/${myTaskId}`);
       const data = await resp.json();
       const fill = document.getElementById('progressFill');
       const ptxt = document.getElementById('progressText');
@@ -566,6 +572,7 @@ function pollProgress() {
         ptxt.innerHTML = `<span class="spinner"></span>正在生成 ${escHtml(String(data.current))}/${escHtml(String(data.total))} 段... (${escHtml(String(data.progress))}%)`;
       } else if (data.status === 'done') {
         clearInterval(pollTimer);
+        pollTimer = null;
         fill.style.width = '100%';
         ptxt.textContent = '✅ 生成完成';
         showResult(data.audio_url, data.duration);
@@ -574,6 +581,7 @@ function pollProgress() {
         loadHistory();
       } else if (data.status === 'error') {
         clearInterval(pollTimer);
+        pollTimer = null;
         ptxt.textContent = '❌ ' + (data.error || '生成失败');
         resetGenerateBtn();
         document.getElementById('queueInfo').style.display = 'none';
@@ -610,7 +618,6 @@ async function uploadRefAudio() {
     const resp = await apiFetch('/api/voices', { method: 'POST', body: form });
     const data = await resp.json();
     if (data.name) {
-      uploadedVoice = data.name;
       const grid = document.getElementById('voiceGrid');
       const btn = document.createElement('div');
       btn.className = 'voice-btn active';
@@ -620,7 +627,7 @@ async function uploadRefAudio() {
       selectVoiceByName(data.name);
     }
   } catch(e) {
-    alert('上传失败: ' + e.message);
+    toast('上传失败: ' + e.message, 'error');
     zone.classList.remove('has-file');
     document.getElementById('uploadText').textContent = '📎 点击或拖拽上传参考音频';
   }
@@ -642,7 +649,7 @@ async function loadVoiceList() {
         </div>
         <div class="voice-item-actions">
           <button onclick="playVoice('${escAttr(v.filename)}')">▶</button>
-          <button onclick="selectVoice('${escAttr(v.name)}')">选</button>
+          <button onclick="selectVoiceByName('${escAttr(v.name)}')">选</button>
           <button onclick="deleteVoice('${escAttr(v.name)}')">✕</button>
         </div>
       </div>
@@ -651,12 +658,9 @@ async function loadVoiceList() {
 }
 
 function playVoice(filename) {
-  const a = new Audio(authUrl('/uploads/' + encodeURIComponent(filename)));
-  a.play().catch(e => alert('播放失败: ' + e.message));
-}
-
-function selectVoice(name) {
-  selectVoiceByName(name);
+  if (currentVoiceAudio) { currentVoiceAudio.pause(); currentVoiceAudio = null; }
+  currentVoiceAudio = new Audio(authUrl('/uploads/' + encodeURIComponent(filename)));
+  currentVoiceAudio.play().catch(e => toast('播放失败: ' + e.message, 'error'));
 }
 
 async function deleteVoice(name) {
@@ -668,7 +672,7 @@ async function deleteVoice(name) {
     });
     if (selectedVoice === name) selectedVoice = 'serena';
     loadVoiceList();
-  } catch(e) { alert('删除失败: ' + e.message); }
+  } catch(e) { toast('删除失败: ' + e.message, 'error'); }
 }
 
 // ─── Microphone Recording ──────────────
@@ -692,11 +696,10 @@ async function startRecording() {
         const resp = await apiFetch('/api/voices', {method:'POST', body:form});
         const data = await resp.json();
         if (data.name) {
-          uploadedVoice = data.name;
           selectedVoice = data.name;
           loadVoiceList();
         }
-      } catch(e) { alert('录制上传失败: ' + e.message); }
+      } catch(e) { toast('录制上传失败: ' + e.message, 'error'); }
       document.getElementById('recordBtn').style.display = '';
       document.getElementById('stopRecordBtn').style.display = 'none';
       document.getElementById('recordStatus').textContent = '';
@@ -705,7 +708,7 @@ async function startRecording() {
     document.getElementById('recordBtn').style.display = 'none';
     document.getElementById('stopRecordBtn').style.display = '';
     document.getElementById('recordStatus').textContent = '🔴 录音中...';
-  } catch(e) { alert('无法访问麦克风: ' + e.message); }
+  } catch(e) { toast('无法访问麦克风: ' + e.message, 'error'); }
 }
 
 function stopRecording() {
@@ -729,8 +732,8 @@ async function startCompare() {
   const voiceA = document.getElementById('compareVoiceA').value;
   const voiceB = document.getElementById('compareVoiceB').value;
   const text = document.getElementById('compareText').value.trim();
-  if (!text) { alert('请输入对比文本'); return; }
-  if (!voiceA || !voiceB) { alert('请选择两个音色'); return; }
+  if (!text) { toast('请输入对比文本', 'warn'); return; }
+  if (!voiceA || !voiceB) { toast('请选择两个音色', 'warn'); return; }
 
   document.getElementById('compareBtn').disabled = true;
   document.getElementById('compareResult').style.display = '';
@@ -750,10 +753,14 @@ async function startCompare() {
       }),
     });
     const data = await resp.json();
-    if (data.error) { alert(data.error); return; }
+    if (data.error) {
+      toast(data.error, 'error');
+      document.getElementById('compareBtn').disabled = false;
+      return;
+    }
     await pollCompareTasks(data.task_a, data.task_b);
   } catch(e) {
-    alert('对比请求失败: ' + e.message);
+    toast('对比请求失败: ' + e.message, 'error');
     document.getElementById('compareBtn').disabled = false;
   }
 }
@@ -918,6 +925,7 @@ async function startBatch() {
 }
 
 async function pollBatchTasks() {
+  if (batchPollTimer) { clearTimeout(batchPollTimer); batchPollTimer = null; }
   let done = 0;
   const total = batchTaskIds.length;
 
@@ -1111,19 +1119,25 @@ function toggleCheckAll(checked) {
 
 async function deleteHistoryItem(id) {
   if (!confirm('确定删除此记录？')) return;
-  await apiFetch(`/api/history/${id}`, {method:'DELETE'});
-  historyChecked.delete(id);
-  loadHistory();
+  try {
+    const resp = await apiFetch(`/api/history/${id}`, {method:'DELETE'});
+    if (!resp.ok) { toast('删除失败', 'error'); return; }
+    historyChecked.delete(id);
+    loadHistory();
+  } catch(e) { toast('删除失败: ' + e.message, 'error'); }
 }
 
 async function batchDeleteHistory() {
   if (!confirm(`确定删除选中的 ${historyChecked.size} 条记录？`)) return;
-  await apiFetch('/api/history/batch', {
-    method:'POST',
-    body: JSON.stringify({ids: [...historyChecked]}),
-  });
-  historyChecked.clear();
-  loadHistory();
+  try {
+    const resp = await apiFetch('/api/history/batch', {
+      method:'POST',
+      body: JSON.stringify({ids: [...historyChecked]}),
+    });
+    if (!resp.ok) { toast('批量删除失败', 'error'); return; }
+    historyChecked.clear();
+    loadHistory();
+  } catch(e) { toast('批量删除失败: ' + e.message, 'error'); }
 }
 
 // Merge selected history items into one audio file.
@@ -1181,14 +1195,14 @@ async function mergeSelectedHistory() {
 async function regenerateFromHistory(id) {
   try {
     const resp = await apiFetch(`/api/history/${encodeURIComponent(id)}`);
-    if (!resp.ok) { alert('记录不存在'); return; }
+    if (!resp.ok) { toast('记录不存在', 'error'); return; }
     const item = await resp.json();
     switchNav('synthesize');
     document.getElementById('textInput').value = item.text;
     document.getElementById('charCount').textContent = item.text.length + '字';
     selectVoiceByName(item.voice);
     setSynthParams({instruct: item.instruct, speed: item.speed});
-  } catch(e) { alert('加载失败: ' + e.message); }
+  } catch(e) { toast('加载失败: ' + e.message, 'error'); }
 }
 
 function downloadHistoryAudio(audioFile, id) {
@@ -1202,9 +1216,12 @@ async function playHistory(audioFile) {
 
 async function clearHistory() {
   if (!confirm('确定清空所有历史记录？')) return;
-  await apiFetch('/api/history', {method:'DELETE'});
-  historyChecked.clear();
-  loadHistory();
+  try {
+    const resp = await apiFetch('/api/history', {method:'DELETE'});
+    if (!resp.ok) { toast('清空失败', 'error'); return; }
+    historyChecked.clear();
+    loadHistory();
+  } catch(e) { toast('清空失败: ' + e.message, 'error'); }
 }
 
 // ─── Status ───────────────────────────
@@ -1335,18 +1352,18 @@ async function saveCurrentPreset() {
     });
     await loadPresets();
     document.getElementById('presetSelect').value = name.trim();
-  } catch(e) { alert('保存失败: ' + e.message); }
+  } catch(e) { toast('保存失败: ' + e.message, 'error'); }
 }
 
 async function deleteCurrentPreset() {
   const name = document.getElementById('presetSelect').value;
-  if (!name) { alert('请先选择预设'); return; }
+  if (!name) { toast('请先选择预设', 'warn'); return; }
   if (!confirm(`确定删除预设 "${name}"？`)) return;
   try {
     await apiFetch(`/api/presets/${encodeURIComponent(name)}`, {method:'DELETE'});
     document.getElementById('presetSelect').value = '';
     await loadPresets();
-  } catch(e) { alert('删除失败: ' + e.message); }
+  } catch(e) { toast('删除失败: ' + e.message, 'error'); }
 }
 
 // ─── Navigation ───────────────────────

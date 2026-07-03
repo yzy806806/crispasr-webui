@@ -24,37 +24,37 @@
     <aside class="sidebar">
       <div class="sidebar-brand">🎙️ CrispASR TTS</div>
       <nav class="sidebar-nav">
-        <div class="nav-item active" data-panel="synthesize" onclick="switchNav('synthesize')">
+        <div class="nav-item active" data-panel="synthesize" tabindex="0" onclick="switchNav('synthesize')" onkeydown="if(event.key==='Enter'||event.key===' ')switchNav('synthesize')">
           <span class="nav-icon">🎤</span> 合成
         </div>
-        <div class="nav-item" data-panel="history" onclick="switchNav('history')">
+        <div class="nav-item" data-panel="history" tabindex="0" onclick="switchNav('history')" onkeydown="if(event.key==='Enter'||event.key===' ')switchNav('history')">
           <span class="nav-icon">📋</span> 历史
         </div>
-        <div class="nav-item" data-panel="clone" onclick="switchNav('clone')">
+        <div class="nav-item" data-panel="clone" tabindex="0" onclick="switchNav('clone')" onkeydown="if(event.key==='Enter'||event.key===' ')switchNav('clone')">
           <span class="nav-icon">🎭</span> 语音克隆
         </div>
-        <div class="nav-item" data-panel="compare" onclick="switchNav('compare')">
+        <div class="nav-item" data-panel="compare" tabindex="0" onclick="switchNav('compare')" onkeydown="if(event.key==='Enter'||event.key===' ')switchNav('compare')">
           <span class="nav-icon">⚖️</span> 对比
         </div>
-        <div class="nav-item" data-panel="batch" onclick="switchNav('batch')">
+        <div class="nav-item" data-panel="batch" tabindex="0" onclick="switchNav('batch')" onkeydown="if(event.key==='Enter'||event.key===' ')switchNav('batch')">
           <span class="nav-icon">📦</span> 批量
         </div>
-        <div class="nav-item" data-panel="status" onclick="switchNav('status')">
+        <div class="nav-item" data-panel="status" tabindex="0" onclick="switchNav('status')" onkeydown="if(event.key==='Enter'||event.key===' ')switchNav('status')">
           <span class="nav-icon">📊</span> 状态
         </div>
-        <div class="nav-item" data-panel="logs" onclick="switchNav('logs')">
+        <div class="nav-item" data-panel="logs" tabindex="0" onclick="switchNav('logs')" onkeydown="if(event.key==='Enter'||event.key===' ')switchNav('logs')">
           <span class="nav-icon">📄</span> 日志
         </div>
-        <div class="nav-item" data-panel="model" onclick="switchNav('model')">
+        <div class="nav-item" data-panel="model" tabindex="0" onclick="switchNav('model')" onkeydown="if(event.key==='Enter'||event.key===' ')switchNav('model')">
           <span class="nav-icon">🧠</span> 模型
         </div>
-        <div class="nav-item" data-panel="update" onclick="switchNav('update')">
+        <div class="nav-item" data-panel="update" tabindex="0" onclick="switchNav('update')" onkeydown="if(event.key==='Enter'||event.key===' ')switchNav('update')">
           <span class="nav-icon">🔄</span> 更新
         </div>
       </nav>
       <div class="sidebar-footer">
-        <div class="nav-item" onclick="showChangePassword()">🔑 修改密码</div>
-        <div class="nav-item" onclick="doLogout()">🚪 退出登录</div>
+        <div class="nav-item" tabindex="0" onclick="showChangePassword()" onkeydown="if(event.key==='Enter'||event.key===' ')showChangePassword()">🔑 修改密码</div>
+        <div class="nav-item" tabindex="0" onclick="doLogout()" onkeydown="if(event.key==='Enter'||event.key===' ')doLogout()">🚪 退出登录</div>
       </div>
     </aside>
     <!-- Main Content -->
@@ -64,7 +64,7 @@
         <h2>🎤 语音合成</h2>
         <!-- Input -->
         <div class="card">
-          <label>输入文本</label>
+          <label for="textInput">输入文本</label>
           <textarea id="textInput" placeholder="输入要转换的文字，长文本会自动分句生成...&#10;&#10;内联标记语法: [音色名]{语气指令}文字&#10;示例: [vivian]{温柔}你好啊 [ryan]{平静}嗯，好久不见"></textarea>
           <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
             <span class="hint" id="charCount">0字</span>
@@ -94,7 +94,7 @@
           <div class="row" style="margin-bottom:10px">
             <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
               <div style="flex:1;min-width:150px">
-                <label>预设</label>
+                <label for="presetSelect">预设</label>
                 <select id="presetSelect" onchange="loadPreset()" style="width:100%">
                   <option value="">— 选择预设 —</option>
                 </select>
@@ -105,19 +105,19 @@
           </div>
           <div class="row">
             <div>
-              <label>音色 <span style="color:var(--muted);font-weight:400">(全局)</span></label>
+              <label for="voiceGrid">音色 <span style="color:var(--muted);font-weight:400">(全局)</span></label>
               <div class="voice-grid" id="voiceGrid"></div>
             </div>
           </div>
           <div class="row" style="margin-top:12px">
             <div>
-              <label>语气指令 <span style="color:var(--muted);font-weight:400">(全局，可选)</span></label>
+              <label for="instructInput">语气指令 <span style="color:var(--muted);font-weight:400">(全局，可选)</span></label>
               <input type="text" id="instructInput" placeholder="用温柔的语气说 / 讲故事的自然语气">
             </div>
           </div>
           <div class="row" style="margin-top:12px">
             <div>
-              <label>速度</label>
+              <label for="speedSelect">速度</label>
               <select id="speedSelect">
                 <option value="0.7">0.7x 慢速</option>
                 <option value="0.85">0.85x 较慢</option>
@@ -127,7 +127,7 @@
               </select>
             </div>
             <div>
-              <label>格式</label>
+              <label for="formatSelect">格式</label>
               <select id="formatSelect">
                 <option value="wav">WAV (无损)</option>
                 <option value="mp3">MP3 (压缩)</option>
@@ -145,13 +145,13 @@
         <div id="queueInfo" style="display:none;margin-top:8px;font-size:13px;color:var(--warn)"></div>
         <!-- Progress -->
         <div class="card" id="progressCard" style="display:none">
-          <label>生成进度</label>
+          <label for="progressCard">生成进度</label>
           <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
           <div class="progress-text" id="progressText">准备中...</div>
         </div>
         <!-- Result -->
         <div class="result-card card" id="resultCard">
-          <label>生成结果</label>
+          <label for="resultCard">生成结果</label>
           <audio id="audioPlayer" class="audio-player" controls></audio>
           <div class="result-meta" id="resultMeta"></div>
           <div class="btn-row">
@@ -164,7 +164,7 @@
         <h2>📋 历史记录</h2>
         <div class="card">
           <div class="history-toolbar">
-            <input type="text" class="history-search" id="historySearch" placeholder="搜索历史记录..." oninput="debounceSearchHistory()">
+            <input type="text" class="search-input" id="historySearch" placeholder="搜索历史记录..." oninput="debounceSearchHistory()">
             <label class="history-checkall"><input type="checkbox" id="historyCheckAll" onchange="toggleCheckAll(this.checked)"> 全选</label>
             <span id="historySelectedCount" style="font-size:12px;color:var(--accent)"></span>
             <button class="btn-sm" onclick="mergeSelectedHistory()" id="mergeSelectedBtn" disabled>🔀 合并选中</button>
@@ -186,7 +186,7 @@
       <div class="panel" id="panelClone">
         <h2>🎭 语音克隆</h2>
         <div class="card">
-          <label>参考音频管理</label>
+          <label for="uploadZone">参考音频管理</label>
           <div id="voiceList" style="margin-bottom:12px"></div>
           <div class="upload-zone" id="uploadZone" onclick="document.getElementById('refAudio').click()">
             <div id="uploadText">📎 点击或拖拽上传参考音频（WAV/MP3，10-15秒）</div>
@@ -302,7 +302,7 @@
         <h2>📄 日志</h2>
         <div class="card">
           <div class="logs-toolbar">
-            <input type="text" class="logs-search" id="logsSearch" placeholder="过滤日志..." oninput="debounceFilterLogs()">
+            <input type="text" class="search-input" id="logsSearch" placeholder="过滤日志..." oninput="debounceFilterLogs()">
             <button class="btn-sm" onclick="loadLogs()">刷新</button>
             <button class="btn-sm" onclick="toggleLogAutoRefresh()" id="logsAutoBtn">自动刷新: 关</button>
           </div>
@@ -344,9 +344,9 @@
 <div class="modal-overlay" id="changePasswordModal" onclick="if(event.target===this)closeChangePassword()">
   <div class="modal-card">
     <h3>🔑 修改密码</h3>
-    <div class="form-group"><label>原密码</label><input type="password" id="cpOldPw" placeholder="输入当前密码"></div>
-    <div class="form-group"><label>新密码</label><input type="password" id="cpNewPw" placeholder="至少4位"></div>
-    <div class="form-group"><label>确认新密码</label><input type="password" id="cpConfirmPw" placeholder="再次输入新密码"></div>
+    <div class="form-group"><label for="cpOldPw">原密码</label><input type="password" id="cpOldPw" placeholder="输入当前密码"></div>
+    <div class="form-group"><label for="cpNewPw">新密码</label><input type="password" id="cpNewPw" placeholder="至少4位"></div>
+    <div class="form-group"><label for="cpConfirmPw">确认新密码</label><input type="password" id="cpConfirmPw" placeholder="再次输入新密码"></div>
     <div id="cpError" class="error-msg" style="display:none"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
       <button class="btn-secondary" onclick="closeChangePassword()">取消</button>
