@@ -164,8 +164,6 @@ button{padding:10px 24px;border:none;border-radius:8px;font-size:14px;font-weigh
 .model-name{font-weight:600;font-size:14px}
 .model-desc{font-size:11px;color:var(--muted);margin-top:2px}
 
-/* Update section */
-.update-log{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;font-family:monospace;font-size:12px;max-height:200px;overflow-y:auto;white-space:pre-wrap;color:var(--muted);margin-top:8px}
 
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--muted);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:6px}
 @keyframes spin{to{transform:rotate(360deg)}}

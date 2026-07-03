@@ -284,60 +284,7 @@ async function switchModel(key) {
   } catch(e) { toast('切换失败: ' + e.message, 'error'); }
 }
 
-// ─── CrispASR Update ──────────────────
-async function checkUpdate() {
-  const el = document.getElementById('versionInfo');
-  el.textContent = '检查中...';
-  try {
-    const resp = await apiFetch('/api/crispasr/version');
-    const data = await resp.json();
-    const btn = document.getElementById('updateBtn');
-    if (!data.installed) {
-      el.textContent = `未安装 | 最新: ${data.latest || '未知'}`;
-      btn.disabled = false;
-      btn.textContent = `安装 CrispASR ${data.latest || ''}`;
-      btn.className = 'btn-warn';
-    } else if (data.latest && data.latest !== data.current) {
-      el.textContent = `当前: ${data.current} | 最新: ${data.latest}`;
-      btn.disabled = false;
-      btn.textContent = `更新到 ${data.latest}`;
-      btn.className = 'btn-warn';
-    } else {
-      el.textContent = `当前: ${data.current} | 已是最新`;
-      btn.disabled = true;
-      btn.textContent = '已是最新';
-      btn.className = 'btn-secondary';
-    }
-  } catch(e) { el.textContent = '检查失败'; }
-}
 
-async function doUpdate() {
-  const btn = document.getElementById('updateBtn');
-  const statusEl = document.getElementById('updateStatus');
-  const logEl = document.getElementById('updateLog');
-  const isInstall = btn.textContent.includes('安装');
-  btn.disabled = true;
-  statusEl.innerHTML = `<span class="spinner"></span>${isInstall ? '下载安装中' : '更新中'}...`;
-  logEl.style.display = 'block';
-  logEl.textContent = isInstall ? '正在下载 CrispASR...' : '开始更新...';
-  
-  try {
-    const resp = await apiFetch('/api/crispasr/update', { method: 'POST' });
-    const data = await resp.json();
-    logEl.textContent = data.log || data.message;
-    if (data.success) {
-      statusEl.textContent = '✅ ' + data.message;
-      loadModelInfo();
-      checkUpdate();
-    } else {
-      statusEl.textContent = '❌ ' + data.message;
-    }
-  } catch(e) {
-    statusEl.textContent = '❌ 请求失败';
-    logEl.textContent = e.message;
-  }
-  btn.disabled = false;
-}
 
 // ─── Init ─────────────────────────────
 async function init() {
