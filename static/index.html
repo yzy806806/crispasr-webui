@@ -318,6 +318,14 @@
           <div id="modelList"></div>
           <div class="hint" style="margin-top:8px">切换模型会重启CrispASR服务，约10-20秒不可用</div>
         </div>
+        <div class="card" style="margin-top:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <label for="checkUpdateBtn" style="margin:0">🔄 CrispASR 版本</label>
+            <span id="versionInfo" class="hint">点击检查版本</span>
+          </div>
+          <div id="updateHint" style="display:none;margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:8px;font-size:13px"></div>
+          <button class="btn-secondary btn-sm" id="checkUpdateBtn" style="margin-top:8px" onclick="checkVersion()">检查版本</button>
+        </div>
       </div>
 
     </main>

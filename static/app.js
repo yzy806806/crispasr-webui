@@ -209,6 +209,7 @@ function showApp() {
   document.getElementById('loginPage').style.display = 'none';
   document.getElementById('appPage').style.display = 'block';
   loadModelInfo();
+  checkVersion();
 }
 
 // ─── Model ────────────────────────────
@@ -285,6 +286,36 @@ async function switchModel(key) {
 }
 
 
+
+// ─── CrispASR Version Check ───────────
+async function checkVersion() {
+  const el = document.getElementById('versionInfo');
+  const hint = document.getElementById('updateHint');
+  const btn = document.getElementById('checkUpdateBtn');
+  btn.disabled = true;
+  el.textContent = '检查中...';
+  hint.style.display = 'none';
+  try {
+    const resp = await apiFetch('/api/crispasr/check');
+    const data = await resp.json();
+    if (!data.installed || data.current === 'unknown') {
+      el.textContent = '未安装';
+      hint.style.display = 'block';
+      hint.innerHTML = '⚠️ CrispASR 未安装，请<a href="https://github.com/CrispStrobe/CrispASR" target="_blank" style="color:var(--accent)">前往 GitHub</a>编译安装。';
+    } else if (data.latest && data.current !== data.latest) {
+      el.textContent = `当前: ${data.current} | 最新: ${data.latest}`;
+      hint.style.display = 'block';
+      hint.innerHTML = `🔄 有新版本可用！请从源码编译更新：<br><code style="font-size:12px">git pull && cargo build --release</code>`;
+    } else if (data.latest) {
+      el.textContent = `当前: ${data.current} | 已是最新`;
+    } else {
+      el.textContent = `当前: ${data.current} | 无法检查最新版本`;
+    }
+  } catch(e) {
+    el.textContent = '检查失败';
+  }
+  btn.disabled = false;
+}
 
 // ─── Init ─────────────────────────────
 async function init() {
