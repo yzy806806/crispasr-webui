@@ -391,7 +391,13 @@ func initDB() error {
 	CREATE INDEX IF NOT EXISTS idx_history_created ON history(created_at);
 	`
 	_, err = db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+	// Migration: add batch_id column if not exists
+	db.Exec("ALTER TABLE history ADD COLUMN batch_id TEXT DEFAULT ''")
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_history_batch ON history(batch_id)")
+	return nil
 }
 
 func dbSetting(key string) string {
@@ -750,6 +756,7 @@ type taskParams struct {
 	speed    float64
 	fmt      string
 	chunks   []map[string]string
+	batchID  string
 }
 
 func applyDefaults(p *taskParams) {
@@ -771,9 +778,9 @@ func createTask(p taskParams) (*Task, int) {
 	chunksJSON, _ := json.Marshal(p.chunks)
 	taskID := newTaskID()
 
-	dbExec(`INSERT INTO history(id,text,voice,instruct,speed,fmt,status,chunks_config,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?)`, taskID, truncate(p.text, maxTruncateLen), p.voice, p.instruct,
-		p.speed, p.fmt, "queued", string(chunksJSON), time.Now().Unix())
+	dbExec(`INSERT INTO history(id,text,voice,instruct,speed,fmt,status,chunks_config,created_at,batch_id)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, taskID, truncate(p.text, maxTruncateLen), p.voice, p.instruct,
+		p.speed, p.fmt, "queued", string(chunksJSON), time.Now().Unix(), p.batchID)
 
 	task := &Task{
 		ID: taskID, Status: "queued", Total: len(p.chunks), Voice: p.voice,
@@ -1463,6 +1470,7 @@ func handleBatch(w http.ResponseWriter, r *http.Request) {
 	p := taskParams{voice: body.Voice, speed: body.Speed, fmt: body.Fmt, instruct: body.Instruct}
 	applyDefaults(&p)
 
+	batchID := newTaskID() // reuse ID generator for batch_id
 	ids := []string{}
 	for _, text := range body.Texts {
 		text = strings.TrimSpace(text)
@@ -1473,10 +1481,52 @@ func handleBatch(w http.ResponseWriter, r *http.Request) {
 			text: text, voice: p.voice, instruct: p.instruct,
 			speed: p.speed, fmt: p.fmt,
 			chunks: []map[string]string{{"text": text, "voice": p.voice, "instruct": p.instruct}},
+			batchID: batchID,
 		})
 		ids = append(ids, task.ID)
 	}
-	sendJSON(w, 200, map[string]any{"task_ids": ids, "count": len(ids)})
+	sendJSON(w, 200, map[string]any{"task_ids": ids, "count": len(ids), "batch_id": batchID})
+}
+
+// handleBatchStatus returns all tasks belonging to a batch_id.
+// GET /api/batch/{id}
+func handleBatchStatus(w http.ResponseWriter, r *http.Request) {
+	batchID := strings.TrimPrefix(r.URL.Path, "/api/batch/")
+	if batchID == "" || batchID == "merge" {
+		sendJSON(w, 400, map[string]string{"error": "缺少 batch_id"})
+		return
+	}
+	rows, err := db.Query(`SELECT id,text,voice,instruct,speed,fmt,audio_file,duration,status,created_at
+		FROM history WHERE batch_id=? ORDER BY created_at ASC`, batchID)
+	if err != nil {
+		sendJSON(w, 500, map[string]string{"error": "查询失败"})
+		return
+	}
+	defer rows.Close()
+	items := []map[string]any{}
+	done := 0
+	for rows.Next() {
+		var id, text, voice, instruct, fmt_, audioFile, status string
+		var speed, duration, createdAt float64
+		rows.Scan(&id, &text, &voice, &instruct, &speed, &fmt_, &audioFile, &duration, &status, &createdAt)
+		if status == "done" || status == "error" {
+			done++
+		}
+		items = append(items, map[string]any{
+			"id": id, "text": text, "voice": voice, "instruct": instruct,
+			"speed": speed, "fmt": fmt_, "audio_file": audioFile, "duration": duration,
+			"status": status, "created_at": createdAt,
+		})
+	}
+	total := len(items)
+	allDone := total > 0 && done == total
+	sendJSON(w, 200, map[string]any{
+		"batch_id": batchID,
+		"items":    items,
+		"total":    total,
+		"done":     done,
+		"all_done": allDone,
+	})
 }
 
 // handleBatchMerge merges multiple completed task audio files into one.
@@ -1886,6 +1936,7 @@ func main() {
 	mux.HandleFunc("/api/compare", requireAuth(handleCompare))
 	mux.HandleFunc("/api/batch", requireAuth(handleBatch))
 	mux.HandleFunc("/api/batch/merge", requireAuth(handleBatchMerge))
+	mux.HandleFunc("/api/batch/", requireAuth(handleBatchStatus))
 	mux.HandleFunc("/api/crispasr/version", requireAuth(handleCrispASRVersion))
 	mux.HandleFunc("/api/crispasr/check", requireAuth(handleCrispASRCheck))
 	mux.HandleFunc("/api/settings", requireAuth(handleSettings))

@@ -334,6 +334,7 @@ async function init() {
   };
   checkResumable();
   loadPresets();
+  restoreBatch();
 }
 
 // ─── Markup Hint ──────────────────────
@@ -762,11 +763,86 @@ async function pollCompareTasks(taskIdA, taskIdB) {
 let batchTaskIds = [];
 let batchPollTimer = null;
 let batchPollAttempts = 0;
+let currentBatchId = null;
 
 document.getElementById('batchText').addEventListener('input', function() {
   const lines = this.value.split('\n').filter(l => l.trim());
   document.getElementById('batchCount').textContent = lines.length ? `${lines.length} 条` : '';
 });
+
+function saveBatchToStorage(batchId, taskIds, texts) {
+  try {
+    localStorage.setItem('crispasr_batch', JSON.stringify({ batch_id: batchId, task_ids: taskIds, texts: texts, ts: Date.now() }));
+  } catch(e) {}
+}
+
+function clearBatchFromStorage() {
+  try { localStorage.removeItem('crispasr_batch'); } catch(e) {}
+}
+
+function getBatchFromStorage() {
+  try {
+    const raw = localStorage.getItem('crispasr_batch');
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch(e) { return null; }
+}
+
+// Called on page load — if there's an unfinished batch in localStorage, restore the UI.
+async function restoreBatch() {
+  const saved = getBatchFromStorage();
+  if (!saved || !saved.batch_id || !saved.task_ids) return;
+
+  try {
+    const r = await apiFetch(`/api/batch/${encodeURIComponent(saved.batch_id)}`);
+    if (!r.ok) { clearBatchFromStorage(); return; }
+    const data = await r.json();
+    if (!data.items || data.items.length === 0) { clearBatchFromStorage(); return; }
+
+    currentBatchId = saved.batch_id;
+    batchTaskIds = saved.task_ids;
+    const texts = saved.texts || data.items.map(i => i.text || '');
+
+    document.getElementById('batchBtn').disabled = true;
+    document.getElementById('batchProgress').style.display = '';
+    document.getElementById('batchMergeArea').style.display = 'none';
+    document.getElementById('batchMergePlayer').style.display = 'none';
+    document.getElementById('batchMergeBtn').textContent = '合并下载';
+    document.getElementById('batchMergeBtn').disabled = false;
+
+    const el = document.getElementById('batchItems');
+    el.innerHTML = batchTaskIds.map((id, i) =>
+      `<div class="batch-item" data-batch-id="${escAttr(id)}">
+        <span class="batch-item-text">${escHtml(texts[i] || '')}</span>
+        <span class="batch-item-status" data-batch-id="${escAttr(id)}">⏳</span>
+      </div>`
+    ).join('');
+
+    if (data.all_done) {
+      document.getElementById('batchFill').style.width = '100%';
+      document.getElementById('batchCount').textContent = `全部完成 ${data.done}/${data.total}`;
+      document.getElementById('batchBtn').disabled = false;
+      document.getElementById('batchMergeArea').style.display = '';
+      batchTaskIds.forEach(id => {
+        const statusEl = document.querySelector(`.batch-item-status[data-batch-id="${CSS.escape(id)}"]`);
+        if (statusEl) { statusEl.textContent = '✅'; statusEl.dataset.done = '1'; }
+      });
+    } else {
+      batchPollAttempts = 0;
+      for (const item of data.items) {
+        const statusEl = document.querySelector(`.batch-item-status[data-batch-id="${CSS.escape(item.id)}"]`);
+        if (!statusEl) continue;
+        if (item.status === 'done') { statusEl.textContent = '✅'; statusEl.dataset.done = '1'; }
+        else if (item.status === 'error') { statusEl.textContent = '❌'; statusEl.dataset.done = '1'; }
+        else if (item.status === 'generating') { statusEl.textContent = '🔄'; }
+        else { statusEl.textContent = '⏳'; }
+      }
+      pollBatchTasks();
+    }
+  } catch(e) {
+    clearBatchFromStorage();
+  }
+}
 
 async function startBatch() {
   const text = document.getElementById('batchText').value;
@@ -796,7 +872,11 @@ async function startBatch() {
     const data = await resp.json();
     if (data.error) { alert(data.error); return; }
     batchTaskIds = data.task_ids;
+    currentBatchId = data.batch_id || null;
     batchPollAttempts = 0;
+    if (currentBatchId) {
+      saveBatchToStorage(currentBatchId, batchTaskIds, lines);
+    }
     const el = document.getElementById('batchItems');
     el.innerHTML = batchTaskIds.map((id, i) =>
       `<div class="batch-item" data-batch-id="${escAttr(id)}">
@@ -855,6 +935,8 @@ async function pollBatchTasks() {
     document.getElementById('batchBtn').disabled = false;
     // Show merge area when all tasks are done
     document.getElementById('batchMergeArea').style.display = '';
+    // All done — clear storage (batch complete, no need to restore)
+    clearBatchFromStorage();
   }
 }
 
