@@ -1479,6 +1479,92 @@ func handleBatch(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, 200, map[string]any{"task_ids": ids, "count": len(ids)})
 }
 
+// handleBatchMerge merges multiple completed task audio files into one.
+// POST /api/batch/merge  body: {"task_ids": ["id1","id2",...], "fmt": "wav"|"mp3"}
+func handleBatchMerge(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		TaskIDs []string `json:"task_ids"`
+		Fmt     string   `json:"fmt"`
+	}
+	if readJSON(r, &body) != nil || len(body.TaskIDs) == 0 {
+		sendJSON(w, 400, map[string]string{"error": "task_ids不能为空"})
+		return
+	}
+	if len(body.TaskIDs) > maxBatchItems {
+		sendJSON(w, 400, map[string]string{"error": "单次最多20条"})
+		return
+	}
+	if body.Fmt == "" {
+		body.Fmt = "wav"
+	}
+
+	// Collect WAV data from each task in order
+	var wavs [][]byte
+	for _, id := range body.TaskIDs {
+		var audioFile string
+		err := db.QueryRow("SELECT audio_file FROM history WHERE id=?", id).Scan(&audioFile)
+		if err != nil || audioFile == "" {
+			sendJSON(w, 400, map[string]string{"error": "任务 " + id + " 未找到或无音频"})
+			return
+		}
+		path := filepath.Join(cfg.DataDir, "audio", filepath.Base(audioFile))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			sendJSON(w, 500, map[string]string{"error": "读取音频失败: " + id})
+			return
+		}
+		wavs = append(wavs, data)
+	}
+
+	// Merge WAVs using existing concatWAVs
+	mergedWAV := concatWAVs(wavs)
+	if mergedWAV == nil {
+		sendJSON(w, 500, map[string]string{"error": "合并失败"})
+		return
+	}
+
+	mergedID := newTaskID()
+	duration := wavDuration(mergedWAV)
+
+	if body.Fmt == "mp3" {
+		// Use ffmpeg to convert merged WAV → MP3
+		wavPath := filepath.Join(cfg.DataDir, "audio", mergedID+"_tmp.wav")
+		mp3Path := filepath.Join(cfg.DataDir, "audio", mergedID+".mp3")
+		if err := os.WriteFile(wavPath, mergedWAV, 0644); err != nil {
+			sendJSON(w, 500, map[string]string{"error": "写入临时文件失败"})
+			return
+		}
+		cmd := exec.Command("ffmpeg", "-y", "-i", wavPath, "-codec:a", "libmp3lame", "-qscale:a", "2", mp3Path)
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+		if err := cmd.Run(); err != nil {
+			os.Remove(wavPath)
+			sendJSON(w, 500, map[string]string{"error": "MP3转码失败，请确保ffmpeg已安装"})
+			return
+		}
+		os.Remove(wavPath)
+		sendJSON(w, 200, map[string]any{
+			"audio_url": "/api/audio/" + mergedID + ".mp3",
+			"duration":  duration,
+			"format":    "mp3",
+			"count":     len(wavs),
+		})
+	} else {
+		audioFile := mergedID + ".wav"
+		path := filepath.Join(cfg.DataDir, "audio", audioFile)
+		if err := os.WriteFile(path, mergedWAV, 0644); err != nil {
+			sendJSON(w, 500, map[string]string{"error": "写入合并文件失败"})
+			return
+		}
+		sendJSON(w, 200, map[string]any{
+			"audio_url": "/api/audio/" + audioFile,
+			"duration":  duration,
+			"format":    "wav",
+			"count":     len(wavs),
+		})
+	}
+}
+
 func handleCrispASRVersion(w http.ResponseWriter, r *http.Request) {
 	current := getCrispASRVersion()
 	installed := findCrispASR() != "crispasr" // "crispasr" is the fallback when not found
@@ -1799,6 +1885,7 @@ func main() {
 	mux.HandleFunc("/api/audition", requireAuth(handleAudition))
 	mux.HandleFunc("/api/compare", requireAuth(handleCompare))
 	mux.HandleFunc("/api/batch", requireAuth(handleBatch))
+	mux.HandleFunc("/api/batch/merge", requireAuth(handleBatchMerge))
 	mux.HandleFunc("/api/crispasr/version", requireAuth(handleCrispASRVersion))
 	mux.HandleFunc("/api/crispasr/check", requireAuth(handleCrispASRCheck))
 	mux.HandleFunc("/api/settings", requireAuth(handleSettings))

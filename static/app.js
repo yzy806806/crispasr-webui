@@ -236,58 +236,22 @@ async function loadModelList() {
       const descSpan = document.createElement('div');
       descSpan.className = 'model-desc';
       descSpan.textContent = m.description || '';
-      // Show available quants
-      if (m.quant_options && m.quant_options.length) {
-        const quantSpan = document.createElement('div');
-        quantSpan.className = 'model-quant-hint';
-        quantSpan.textContent = '量化: ' + m.quant_options.map(q => q.tag).join(' | ');
-        descSpan.appendChild(quantSpan);
-      }
       const wrapper = document.createElement('div');
       wrapper.appendChild(nameSpan);
       wrapper.appendChild(descSpan);
       div.appendChild(wrapper);
-      div.onclick = () => switchModelDialog(m);
+      div.onclick = () => switchModel(m.key);
       list.appendChild(div);
     });
   } catch(e) { console.error(e); }
 }
 
-// Show a dialog to pick quantization before switching
-function switchModelDialog(m) {
-  const quants = m.quant_options || [];
-  if (quants.length <= 1) {
-    // No quant choice — switch directly
-    const quant = quants.length === 1 ? quants[0].tag : (m.default_quant || '');
-    if (!confirm(`切换到 ${m.key}？CrispASR服务将重启约10-20秒。`)) return;
-    doSwitchModel(m.key, quant);
-    return;
-  }
-  // Build a simple prompt with quant options
-  let msg = `选择 ${m.key} 的量化级别：\n\n`;
-  quants.forEach((q, i) => {
-    msg += `  ${i + 1}. ${q.tag} — ${q.desc}\n`;
-  });
-  msg += `\n输入数字 (1-${quants.length})，或取消：`;
-  const choice = prompt(msg, '1');
-  if (choice === null) return;
-  const idx = parseInt(choice) - 1;
-  if (isNaN(idx) || idx < 0 || idx >= quants.length) {
-    alert('无效选择');
-    return;
-  }
-  const quant = quants[idx].tag;
-  if (!confirm(`确认切换到 ${m.key} (${quant})？\nCrispASR服务将重启约10-20秒。`)) return;
-  doSwitchModel(m.key, quant);
-}
-
-async function doSwitchModel(key, quant) {
+async function switchModel(key) {
+  if (!confirm(`切换到 ${key}？CrispASR服务将重启约10-20秒。`)) return;
   try {
-    const body = { model: key };
-    if (quant) body.quant = quant;
     const resp = await apiFetch('/api/model/switch', {
       method: 'POST',
-      body: JSON.stringify(body),
+      body: JSON.stringify({model: key}),
     });
     const data = await resp.json();
     alert(data.message);
@@ -295,64 +259,59 @@ async function doSwitchModel(key, quant) {
   } catch(e) { alert('切换失败: ' + e.message); }
 }
 
-// Keep old function for backward compat (no quant)
-async function switchModel(key) {
-  // Find model info to get default quant
-  try {
-    const resp = await apiFetch('/api/models');
-    const models = await resp.json();
-    const m = models.find(x => x.key === key);
-    if (m) { switchModelDialog(m); return; }
-  } catch(e) {}
-  // Fallback
-  if (!confirm(`切换到 ${key}？CrispASR服务将重启约10-20秒。`)) return;
-  doSwitchModel(key, '');
-}
-
-// ─── CrispASR Version Check ──────────────────
-async function checkCrispASR() {
+// ─── CrispASR Update ──────────────────
+async function checkUpdate() {
   const el = document.getElementById('versionInfo');
   el.textContent = '检查中...';
   try {
-    const resp = await apiFetch('/api/crispasr/check');
+    const resp = await apiFetch('/api/crispasr/version');
     const data = await resp.json();
+    const btn = document.getElementById('updateBtn');
     if (!data.installed) {
-      el.innerHTML = `❌ CrispASR 未安装<br><small>请自行安装后配置路径</small>`;
-    } else if (data.up_to_date) {
-      el.innerHTML = `✅ 当前: ${data.current} (最新)`;
+      el.textContent = `未安装 | 最新: ${data.latest || '未知'}`;
+      btn.disabled = false;
+      btn.textContent = `安装 CrispASR ${data.latest || ''}`;
+      btn.className = 'btn-warn';
+    } else if (data.latest && data.latest !== data.current) {
+      el.textContent = `当前: ${data.current} | 最新: ${data.latest}`;
+      btn.disabled = false;
+      btn.textContent = `更新到 ${data.latest}`;
+      btn.className = 'btn-warn';
     } else {
-      el.innerHTML = `⚠️ 当前: ${data.current} | 最新: ${data.latest}<br><small>请手动更新 CrispASR</small>`;
+      el.textContent = `当前: ${data.current} | 已是最新`;
+      btn.disabled = true;
+      btn.textContent = '已是最新';
+      btn.className = 'btn-secondary';
     }
   } catch(e) { el.textContent = '检查失败'; }
 }
 
-// Keep old function name for panel init
-async function checkUpdate() { checkCrispASR(); }
-
-// ─── Settings ──────────────────────────
-async function loadSettings() {
+async function doUpdate() {
+  const btn = document.getElementById('updateBtn');
+  const statusEl = document.getElementById('updateStatus');
+  const logEl = document.getElementById('updateLog');
+  const isInstall = btn.textContent.includes('安装');
+  btn.disabled = true;
+  statusEl.innerHTML = `<span class="spinner"></span>${isInstall ? '下载安装中' : '更新中'}...`;
+  logEl.style.display = 'block';
+  logEl.textContent = isInstall ? '正在下载 CrispASR...' : '开始更新...';
+  
   try {
-    const resp = await apiFetch('/api/settings');
+    const resp = await apiFetch('/api/crispasr/update', { method: 'POST' });
     const data = await resp.json();
-    document.getElementById('crispasrPath').value = data.crispasr_path || '';
-    document.getElementById('crispasrPort').value = data.crispasr_port || '8080';
-  } catch(e) { console.error(e); }
-}
-
-async function saveSettings() {
-  const msg = document.getElementById('settingsMsg');
-  msg.textContent = '保存中...';
-  try {
-    const resp = await apiFetch('/api/settings/save', {
-      method: 'POST',
-      body: JSON.stringify({
-        crispasr_path: document.getElementById('crispasrPath').value,
-        crispasr_port: document.getElementById('crispasrPort').value,
-      }),
-    });
-    const data = await resp.json();
-    msg.textContent = data.error ? '❌ ' + data.error : '✅ ' + data.message;
-  } catch(e) { msg.textContent = '❌ 保存失败'; }
+    logEl.textContent = data.log || data.message;
+    if (data.success) {
+      statusEl.textContent = '✅ ' + data.message;
+      loadModelInfo();
+      checkUpdate();
+    } else {
+      statusEl.textContent = '❌ ' + data.message;
+    }
+  } catch(e) {
+    statusEl.textContent = '❌ 请求失败';
+    logEl.textContent = e.message;
+  }
+  btn.disabled = false;
 }
 
 // ─── Init ─────────────────────────────
@@ -817,6 +776,10 @@ async function startBatch() {
 
   document.getElementById('batchBtn').disabled = true;
   document.getElementById('batchProgress').style.display = '';
+  document.getElementById('batchMergeArea').style.display = 'none';
+  document.getElementById('batchMergePlayer').style.display = 'none';
+  document.getElementById('batchMergeBtn').textContent = '合并下载';
+  document.getElementById('batchMergeBtn').disabled = false;
 
   try {
     const params = getSynthParams();
@@ -890,6 +853,40 @@ async function pollBatchTasks() {
   } else {
     document.getElementById('batchCount').textContent = `全部完成 ${done}/${total}`;
     document.getElementById('batchBtn').disabled = false;
+    // Show merge area when all tasks are done
+    document.getElementById('batchMergeArea').style.display = '';
+  }
+}
+
+// Merge all batch audio files into one and download
+async function mergeBatchAudio() {
+  const btn = document.getElementById('batchMergeBtn');
+  const fmt = document.getElementById('batchMergeFmt').value;
+  btn.disabled = true;
+  btn.textContent = '合并中...';
+
+  try {
+    const resp = await apiFetch('/api/batch/merge', {
+      method: 'POST',
+      body: JSON.stringify({ task_ids: batchTaskIds, fmt: fmt }),
+    });
+    const data = await resp.json();
+    if (data.error) { alert(data.error); return; }
+
+    // Show merged audio player
+    const player = document.getElementById('batchMergePlayer');
+    player.src = authUrl(data.audio_url);
+    player.style.display = '';
+
+    // Trigger download
+    triggerDownload(authUrl(data.audio_url), `batch_merged_${Date.now()}.${fmt}`);
+
+    btn.textContent = '✅ 已合并下载';
+    btn.disabled = false;
+  } catch(e) {
+    alert('合并失败: ' + e.message);
+    btn.textContent = '合并下载';
+    btn.disabled = false;
   }
 }
 
@@ -1197,7 +1194,7 @@ function switchNav(name) {
   if (!_panelLoaded.has(name)) {
     _panelLoaded.add(name);
     if (name === 'history') loadHistory();
-    if (name === 'update') { checkUpdate(); loadSettings(); }
+    if (name === 'update') checkUpdate();
     if (name === 'clone') loadVoiceList();
     if (name === 'compare') loadCompareVoices();
   }

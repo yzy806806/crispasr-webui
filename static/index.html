@@ -246,6 +246,17 @@
               <div class="batch-progress-bar"><div class="batch-progress-fill" id="batchFill" style="width:0%"></div></div>
             </div>
             <div id="batchItems"></div>
+            <div id="batchMergeArea" style="display:none;margin-top:12px;padding-top:12px;border-top:1px solid var(--border)">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <span style="font-size:14px">📦 合并所有音频为一个文件：</span>
+                <select id="batchMergeFmt" style="width:auto">
+                  <option value="mp3">MP3 (压缩)</option>
+                  <option value="wav">WAV (无损)</option>
+                </select>
+                <button class="btn-primary" onclick="mergeBatchAudio()" id="batchMergeBtn">合并下载</button>
+              </div>
+              <audio id="batchMergePlayer" controls style="width:100%;margin-top:8px;display:none"></audio>
+            </div>
           </div>
         </div>
       </div>
@@ -308,23 +319,20 @@
           <div class="hint" style="margin-top:8px">切换模型会重启CrispASR服务，约10-20秒不可用</div>
         </div>
       </div>
-      <!-- Panel: Settings -->
+      <!-- Panel: Update -->
       <div class="panel" id="panelUpdate">
-        <h2>⚙️ CrispASR 设置</h2>
+        <h2>🔄 CrispASR 更新</h2>
         <div class="card">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
             <label style="margin:0">版本信息</label>
-            <span id="versionInfo" class="hint">检测中...</span>
+            <span id="versionInfo" class="hint">当前版本: 检测中...</span>
           </div>
-          <button class="btn-secondary" onclick="checkUpdate()">检查版本</button>
-          <div style="margin-top:16px">
-            <label>CrispASR 二进制路径</label>
-            <input type="text" id="crispasrPath" placeholder="/opt/crispasr/bin/crispasr" style="width:100%">
-            <label style="margin-top:8px">端口</label>
-            <input type="text" id="crispasrPort" placeholder="8080" style="width:100%">
-            <button class="btn-primary" onclick="saveSettings()" style="margin-top:10px">保存设置</button>
-            <span id="settingsMsg" class="hint"></span>
+          <div style="display:flex;gap:10px;align-items:center">
+            <button class="btn-secondary" onclick="checkUpdate()">检查更新</button>
+            <button class="btn-warn" id="updateBtn" onclick="doUpdate()" disabled>安装/更新</button>
+            <span id="updateStatus"></span>
           </div>
+          <div class="update-log" id="updateLog" style="display:none"></div>
         </div>
       </div>
     </main>
