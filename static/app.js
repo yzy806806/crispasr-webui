@@ -27,6 +27,29 @@ async function apiFetch(url, opts = {}) {
 
 // ─── Shared Helpers ───────────────────
 
+/** Toast notification system */
+function toast(msg, type = 'info', timeout = 4000) {
+  const container = document.getElementById('toastContainer');
+  if (!container) { alert(msg); return; }
+  const el = document.createElement('div');
+  const colors = {
+    info:    { bg: '#3b82f6', icon: 'ℹ️' },
+    success: { bg: '#22c55e', icon: '✅' },
+    warn:    { bg: '#f59e0b', icon: '⚠️' },
+    error:   { bg: '#ef4444', icon: '❌' },
+  };
+  const c = colors[type] || colors.info;
+  el.style.cssText = `background:${c.bg};color:#fff;padding:10px 16px;border-radius:8px;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,0.3);display:flex;align-items:center;gap:8px;pointer-events:auto;max-width:380px;word-break:break-word;animation:toastIn 0.2s ease`;
+  el.innerHTML = `<span>${c.icon}</span><span>${escHtml(msg)}</span>`;
+  container.appendChild(el);
+  setTimeout(() => {
+    el.style.transition = 'opacity 0.3s, transform 0.3s';
+    el.style.opacity = '0';
+    el.style.transform = 'translateX(20px)';
+    setTimeout(() => el.remove(), 300);
+  }, timeout);
+}
+
 /** Append token to a URL for auth'd media access */
 function authUrl(url) {
   const sep = url.includes('?') ? '&' : '?';
@@ -847,8 +870,8 @@ async function restoreBatch() {
 async function startBatch() {
   const text = document.getElementById('batchText').value;
   const lines = text.split('\n').map(l => l.trim()).filter(l => l);
-  if (!lines.length) { alert('请输入至少一段文本'); return; }
-  if (lines.length > 20) { alert('最多20条'); return; }
+  if (!lines.length) { toast('请输入至少一段文本', 'warn'); return; }
+  if (lines.length > 20) { toast('最多20条', 'warn'); return; }
 
   document.getElementById('batchBtn').disabled = true;
   document.getElementById('batchProgress').style.display = '';
@@ -870,13 +893,16 @@ async function startBatch() {
       }),
     });
     const data = await resp.json();
-    if (data.error) { alert(data.error); return; }
+    if (data.error) { toast(data.error, 'error'); return; }
     batchTaskIds = data.task_ids;
     currentBatchId = data.batch_id || null;
     batchPollAttempts = 0;
     if (currentBatchId) {
       saveBatchToStorage(currentBatchId, batchTaskIds, lines);
     }
+    // Clear textarea after successful submit
+    document.getElementById('batchText').value = '';
+    document.getElementById('batchCount').textContent = '';
     const el = document.getElementById('batchItems');
     el.innerHTML = batchTaskIds.map((id, i) =>
       `<div class="batch-item" data-batch-id="${escAttr(id)}">
@@ -886,7 +912,7 @@ async function startBatch() {
     ).join('');
     pollBatchTasks();
   } catch(e) {
-    alert('批量提交失败: ' + e.message);
+    toast('批量提交失败: ' + e.message, 'error');
     document.getElementById('batchBtn').disabled = false;
   }
 }
@@ -927,6 +953,7 @@ async function pollBatchTasks() {
   }
 
   document.getElementById('batchFill').style.width = `${(done/total)*100}%`;
+  document.getElementById('batchCount').textContent = `生成中 ${done}/${total}`;
 
   if (done < total) {
     batchPollTimer = setTimeout(pollBatchTasks, 2000);
@@ -937,6 +964,8 @@ async function pollBatchTasks() {
     document.getElementById('batchMergeArea').style.display = '';
     // All done — clear storage (batch complete, no need to restore)
     clearBatchFromStorage();
+    // Notify user
+    toast(`批量合成完成！${done}/${total} 条`, 'success');
   }
 }
 
@@ -953,7 +982,7 @@ async function mergeBatchAudio() {
       body: JSON.stringify({ task_ids: batchTaskIds, fmt: fmt }),
     });
     const data = await resp.json();
-    if (data.error) { alert(data.error); return; }
+    if (data.error) { toast(data.error, 'error'); return; }
 
     // Show merged audio player
     const player = document.getElementById('batchMergePlayer');
@@ -965,8 +994,9 @@ async function mergeBatchAudio() {
 
     btn.textContent = '✅ 已合并下载';
     btn.disabled = false;
+    toast(`已合并 ${data.count} 条音频 (${data.duration.toFixed(1)}s)`, 'success');
   } catch(e) {
-    alert('合并失败: ' + e.message);
+    toast('合并失败: ' + e.message, 'error');
     btn.textContent = '合并下载';
     btn.disabled = false;
   }
@@ -1040,15 +1070,27 @@ async function loadHistory() {
       list.appendChild(div);
     });
     updateCheckAllState();
+    updateHistoryActionBar();
   } catch(e) { console.error(e); }
 }
 
 function onHistoryCheck() {
   const checks = document.querySelectorAll('.history-check');
-  historyChecked.clear();
-  checks.forEach(c => { if (c.checked) historyChecked.add(c.dataset.id); });
-  document.getElementById('batchDeleteBtn').disabled = historyChecked.size === 0;
+  checks.forEach(c => {
+    if (c.checked) { historyChecked.add(c.dataset.id); }
+    else { historyChecked.delete(c.dataset.id); }
+  });
+  updateHistoryActionBar();
   updateCheckAllState();
+}
+
+function updateHistoryActionBar() {
+  const n = historyChecked.size;
+  document.getElementById('batchDeleteBtn').disabled = n === 0;
+  document.getElementById('mergeSelectedBtn').disabled = n < 2;
+  // Show count badge
+  const badge = document.getElementById('historySelectedCount');
+  if (badge) badge.textContent = n > 0 ? `已选 ${n} 条` : '';
 }
 
 function updateCheckAllState() {
@@ -1059,12 +1101,12 @@ function updateCheckAllState() {
 
 function toggleCheckAll(checked) {
   const checks = document.querySelectorAll('.history-check');
-  historyChecked.clear();
   checks.forEach(c => {
     c.checked = checked;
     if (checked) historyChecked.add(c.dataset.id);
+    else historyChecked.delete(c.dataset.id);
   });
-  document.getElementById('batchDeleteBtn').disabled = historyChecked.size === 0;
+  updateHistoryActionBar();
 }
 
 async function deleteHistoryItem(id) {
@@ -1082,6 +1124,58 @@ async function batchDeleteHistory() {
   });
   historyChecked.clear();
   loadHistory();
+}
+
+// Merge selected history items into one audio file.
+// Order: by created_at ascending (oldest first) — the natural audio sequence.
+async function mergeSelectedHistory() {
+  const ids = [...historyChecked];
+  if (ids.length < 2) { toast('请至少选择 2 条记录', 'warn'); return; }
+
+  // Fetch full item info for all selected IDs to sort by created_at
+  const items = [];
+  for (const id of ids) {
+    try {
+      const r = await apiFetch(`/api/history/${encodeURIComponent(id)}`);
+      if (r.ok) {
+        const item = await r.json();
+        if (item.audio_file && item.status === 'done') {
+          items.push(item);
+        }
+      }
+    } catch(e) {}
+  }
+
+  if (items.length < 2) {
+    toast('选中的记录中只有 ' + items.length + ' 条有可用音频，无法合并', 'warn');
+    return;
+  }
+
+  // Sort by created_at ascending
+  items.sort((a, b) => a.created_at - b.created_at);
+  const sortedIds = items.map(i => i.id);
+
+  // Show a merge dialog for format selection
+  const fmt = confirm('合并 ' + items.length + ' 条音频（按创建时间排序）\n\n确定 = MP3 (压缩，推荐)\n取消 = WAV (无损)') ? 'mp3' : 'wav';
+
+  toast('正在合并 ' + items.length + ' 条音频...', 'info');
+
+  try {
+    const resp = await apiFetch('/api/batch/merge', {
+      method: 'POST',
+      body: JSON.stringify({ task_ids: sortedIds, fmt: fmt }),
+    });
+    const data = await resp.json();
+    if (data.error) { toast(data.error, 'error'); return; }
+
+    const filename = `merged_${items.length}items_${Date.now()}.${fmt}`;
+    triggerDownload(authUrl(data.audio_url), filename);
+    toast(`✅ 已合并 ${items.length} 条音频 (${data.duration.toFixed(1)}s)`, 'success');
+    // Refresh history to show the merged entry (if backend saved it)
+    loadHistory();
+  } catch(e) {
+    toast('合并失败: ' + e.message, 'error');
+  }
 }
 
 async function regenerateFromHistory(id) {

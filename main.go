@@ -1575,6 +1575,7 @@ func handleBatchMerge(w http.ResponseWriter, r *http.Request) {
 
 	mergedID := newTaskID()
 	duration := wavDuration(mergedWAV)
+	mergeLabel := fmt.Sprintf("合并音频 (%d条)", len(wavs))
 
 	if body.Fmt == "mp3" {
 		// Use ffmpeg to convert merged WAV → MP3
@@ -1593,8 +1594,13 @@ func handleBatchMerge(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		os.Remove(wavPath)
+		audioFile := mergedID + ".mp3"
+		// Save to history so user can find it later
+		dbExec(`INSERT INTO history(id,text,voice,instruct,speed,fmt,audio_file,duration,status,chunks_config,created_at,batch_id)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, mergedID, mergeLabel, "", "", 1.0, "mp3",
+			audioFile, duration, "done", "", time.Now().Unix(), "")
 		sendJSON(w, 200, map[string]any{
-			"audio_url": "/api/audio/" + mergedID + ".mp3",
+			"audio_url": "/api/audio/" + audioFile,
 			"duration":  duration,
 			"format":    "mp3",
 			"count":     len(wavs),
@@ -1606,6 +1612,10 @@ func handleBatchMerge(w http.ResponseWriter, r *http.Request) {
 			sendJSON(w, 500, map[string]string{"error": "写入合并文件失败"})
 			return
 		}
+		// Save to history so user can find it later
+		dbExec(`INSERT INTO history(id,text,voice,instruct,speed,fmt,audio_file,duration,status,chunks_config,created_at,batch_id)
+			VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, mergedID, mergeLabel, "", "", 1.0, "wav",
+			audioFile, duration, "done", "", time.Now().Unix(), "")
 		sendJSON(w, 200, map[string]any{
 			"audio_url": "/api/audio/" + audioFile,
 			"duration":  duration,

@@ -166,6 +166,8 @@
           <div class="history-toolbar">
             <input type="text" class="history-search" id="historySearch" placeholder="搜索历史记录..." oninput="debounceSearchHistory()">
             <label class="history-checkall"><input type="checkbox" id="historyCheckAll" onchange="toggleCheckAll(this.checked)"> 全选</label>
+            <span id="historySelectedCount" style="font-size:12px;color:var(--accent)"></span>
+            <button class="btn-sm" onclick="mergeSelectedHistory()" id="mergeSelectedBtn" disabled>🔀 合并选中</button>
             <button class="btn-sm" onclick="batchDeleteHistory()" id="batchDeleteBtn" disabled>删除选中</button>
             <button class="btn-sm" onclick="clearHistory()">清空全部</button>
           </div>
@@ -352,6 +354,10 @@
     </div>
   </div>
 </div>
+
+<!-- Toast notifications -->
+<div id="toastContainer" style="position:fixed;top:16px;right:16px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none"></div>
+
 <script src="/static/app.js"></script>
 </body>
 </html>
