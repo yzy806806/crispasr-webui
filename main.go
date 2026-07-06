@@ -31,7 +31,6 @@ const (
 	appVersion    = "1.3.1"
 	wavHeaderSize = 44
 	splitThreshold = 800
-	maxTruncateLen = 2000
 	loginRateLimit = 10
 	loginRateWindow = 5 * time.Minute
 	maxBatchItems = 20
@@ -805,7 +804,7 @@ func createTask(p taskParams) (*Task, int) {
 	taskID := newTaskID()
 
 	dbExec(`INSERT INTO history(id,text,voice,instruct,speed,fmt,status,chunks_config,created_at,batch_id)
-		VALUES(?,?,?,?,?,?,?,?,?,?)`, taskID, truncate(p.text, maxTruncateLen), p.voice, p.instruct,
+	VALUES(?,?,?,?,?,?,?,?,?,?)`, taskID, p.text, p.voice, p.instruct,
 		p.speed, p.fmt, "queued", string(chunksJSON), time.Now().Unix(), p.batchID)
 
 	task := &Task{
@@ -1045,10 +1044,15 @@ func handleSplit(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleHistory(w http.ResponseWriter, r *http.Request) {
-	// Handle single-item GET
+	// Single-item GET: /api/history/{id}
 	if r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/api/history/") {
 		id := strings.TrimPrefix(r.URL.Path, "/api/history/")
-		var id_, text, voice, instruct, fmt_, audioFile, status string
+		if id == "" {
+			sendJSON(w, 400, map[string]string{"error": "缺少 ID"})
+			return
+		}
+		var id_, text, voice, instruct, fmt_, status string
+		var audioFile sql.NullString
 		var speed, duration, createdAt float64
 		err := db.QueryRow(`SELECT id,text,voice,instruct,speed,fmt,audio_file,duration,status,created_at
 			FROM history WHERE id=?`, id).Scan(&id_, &text, &voice, &instruct, &speed, &fmt_, &audioFile, &duration, &status, &createdAt)
@@ -1056,14 +1060,76 @@ func handleHistory(w http.ResponseWriter, r *http.Request) {
 			sendJSON(w, 404, map[string]string{"error": "记录不存在"})
 			return
 		}
+		af := ""
+		if audioFile.Valid {
+			af = audioFile.String
+		}
 		sendJSON(w, 200, map[string]any{
 			"id": id_, "text": text, "voice": voice, "instruct": instruct,
-			"speed": speed, "fmt": fmt_, "audio_file": audioFile, "duration": duration,
+			"speed": speed, "fmt": fmt_, "audio_file": af, "duration": duration,
 			"status": status, "created_at": createdAt,
 		})
 		return
 	}
 
+	// Delete all: DELETE /api/history
+	if r.Method == "DELETE" && r.URL.Path == "/api/history" {
+		rows, _ := db.Query("SELECT audio_file FROM history WHERE audio_file IS NOT NULL")
+		for rows.Next() {
+			var f string
+			rows.Scan(&f)
+			os.Remove(filepath.Join(cfg.DataDir, "audio", filepath.Base(f)))
+		}
+		rows.Close()
+		dbExec("DELETE FROM history")
+		sendJSON(w, 200, map[string]bool{"ok": true})
+		return
+	}
+
+	// Batch delete: POST /api/history/batch
+	if r.Method == "POST" && r.URL.Path == "/api/history/batch" {
+		var body struct{ IDs []string `json:"ids"` }
+		if readJSON(r, &body) != nil || len(body.IDs) == 0 {
+			sendJSON(w, 400, map[string]string{"error": "无效请求"})
+			return
+		}
+		placeholders := make([]string, len(body.IDs))
+		args := make([]any, len(body.IDs))
+		for i, id := range body.IDs {
+			placeholders[i] = "?"
+			args[i] = id
+		}
+		inClause := strings.Join(placeholders, ",")
+		rows, err := db.Query("SELECT audio_file FROM history WHERE id IN("+inClause+")", args...)
+		if err == nil {
+			for rows.Next() {
+				var f string
+				rows.Scan(&f)
+				if f != "" {
+					os.Remove(filepath.Join(cfg.DataDir, "audio", filepath.Base(f)))
+				}
+			}
+			rows.Close()
+		}
+		dbExec("DELETE FROM history WHERE id IN("+inClause+")", args...)
+		sendJSON(w, 200, map[string]bool{"ok": true})
+		return
+	}
+
+	// Delete single: DELETE /api/history/{id}
+	if r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/api/history/") {
+		id := strings.TrimPrefix(r.URL.Path, "/api/history/")
+		var audioFile sql.NullString
+		db.QueryRow("SELECT audio_file FROM history WHERE id=?", id).Scan(&audioFile)
+		if audioFile.Valid && audioFile.String != "" {
+			os.Remove(filepath.Join(cfg.DataDir, "audio", filepath.Base(audioFile.String)))
+		}
+		dbExec("DELETE FROM history WHERE id=?", id)
+		sendJSON(w, 200, map[string]bool{"ok": true})
+		return
+	}
+
+	// List with pagination: GET /api/history
 	q := r.URL.Query()
 	page, _ := strconv.Atoi(q.Get("page"))
 	if page < 1 {
@@ -1100,12 +1166,17 @@ func handleHistory(w http.ResponseWriter, r *http.Request) {
 
 	items := []map[string]any{}
 	for rows.Next() {
-		var id, text, voice, instruct, fmt_, audioFile, status string
+		var id, text, voice, instruct, fmt_, status string
+		var audioFile sql.NullString
 		var speed, duration, createdAt float64
 		rows.Scan(&id, &text, &voice, &instruct, &speed, &fmt_, &audioFile, &duration, &status, &createdAt)
+		af := ""
+		if audioFile.Valid {
+			af = audioFile.String
+		}
 		items = append(items, map[string]any{
 			"id": id, "text": text, "voice": voice, "instruct": instruct,
-			"speed": speed, "fmt": fmt_, "audio_file": audioFile, "duration": duration,
+			"speed": speed, "fmt": fmt_, "audio_file": af, "duration": duration,
 			"status": status, "created_at": createdAt,
 		})
 	}
@@ -1113,62 +1184,6 @@ func handleHistory(w http.ResponseWriter, r *http.Request) {
 		"items": items, "total": total, "page": page, "per_page": perPage,
 		"pages": (total + perPage - 1) / perPage,
 	})
-}
-
-func handleDeleteHistory(w http.ResponseWriter, r *http.Request) {
-	if r.Method == "DELETE" && r.URL.Path == "/api/history" {
-		rows, _ := db.Query("SELECT audio_file FROM history WHERE audio_file IS NOT NULL")
-		for rows.Next() {
-			var f string
-			rows.Scan(&f)
-			os.Remove(filepath.Join(cfg.DataDir, "audio", filepath.Base(f)))
-		}
-		rows.Close()
-		dbExec("DELETE FROM history")
-		sendJSON(w, 200, map[string]bool{"ok": true})
-		return
-	}
-
-	// Batch delete
-	if r.Method == "POST" && r.URL.Path == "/api/history/batch" {
-		var body struct{ IDs []string `json:"ids"` }
-		if readJSON(r, &body) != nil || len(body.IDs) == 0 {
-			sendJSON(w, 400, map[string]string{"error": "无效请求"})
-			return
-		}
-		// Single query to get all audio files, then single DELETE
-		placeholders := make([]string, len(body.IDs))
-		args := make([]any, len(body.IDs))
-		for i, id := range body.IDs {
-			placeholders[i] = "?"
-			args[i] = id
-		}
-		inClause := strings.Join(placeholders, ",")
-		rows, err := db.Query("SELECT audio_file FROM history WHERE id IN("+inClause+")", args...)
-		if err == nil {
-			for rows.Next() {
-				var f string
-				rows.Scan(&f)
-				if f != "" {
-					os.Remove(filepath.Join(cfg.DataDir, "audio", filepath.Base(f)))
-				}
-			}
-			rows.Close()
-		}
-		dbExec("DELETE FROM history WHERE id IN("+inClause+")", args...)
-		sendJSON(w, 200, map[string]bool{"ok": true})
-		return
-	}
-
-	// Delete single
-	id := strings.TrimPrefix(r.URL.Path, "/api/history/")
-	var audioFile string
-	db.QueryRow("SELECT audio_file FROM history WHERE id=?", id).Scan(&audioFile)
-	if audioFile != "" {
-		os.Remove(filepath.Join(cfg.DataDir, "audio", filepath.Base(audioFile)))
-	}
-	dbExec("DELETE FROM history WHERE id=?", id)
-	sendJSON(w, 200, map[string]bool{"ok": true})
 }
 
 func handlePresets(w http.ResponseWriter, r *http.Request) {
@@ -1392,6 +1407,18 @@ func initCpuThreads() {
 }
 
 func handleVoices(w http.ResponseWriter, r *http.Request) {
+	// DELETE: /api/voices/{name} — delete a voice clone
+	if r.Method == "DELETE" && strings.HasPrefix(r.URL.Path, "/api/voices/") {
+		name := strings.TrimPrefix(r.URL.Path, "/api/voices/")
+		var filename string
+		db.QueryRow("SELECT filename FROM voices WHERE name=?", name).Scan(&filename)
+		os.Remove(filepath.Join(cfg.DataDir, "uploads", filepath.Base(filename)))
+		os.Remove(filepath.Join(cfg.CrispASRDir, "voices", filepath.Base(filename)))
+		dbExec("DELETE FROM voices WHERE name=?", name)
+		sendJSON(w, 200, map[string]bool{"ok": true})
+		return
+	}
+
 	if r.Method == "GET" {
 		rows, err := db.Query("SELECT name, filename, created_at FROM voices ORDER BY created_at DESC")
 		if err != nil {
@@ -1462,16 +1489,6 @@ func handleVoices(w http.ResponseWriter, r *http.Request) {
 	dbExec("INSERT OR REPLACE INTO voices(name,filename,created_at) VALUES(?,?,?)", safe, safe+".wav", time.Now().Unix())
 	log.Printf("Uploaded voice: %s (%d bytes from %s)", safe, written, header.Filename)
 	sendJSON(w, 200, map[string]string{"name": safe, "filename": safe + ".wav"})
-}
-
-func handleDeleteVoice(w http.ResponseWriter, r *http.Request) {
-	name := strings.TrimPrefix(r.URL.Path, "/api/voices/")
-	var filename string
-	db.QueryRow("SELECT filename FROM voices WHERE name=?", name).Scan(&filename)
-	os.Remove(filepath.Join(cfg.DataDir, "uploads", filepath.Base(filename)))
-	os.Remove(filepath.Join(cfg.CrispASRDir, "voices", filepath.Base(filename)))
-	dbExec("DELETE FROM voices WHERE name=?", name)
-	sendJSON(w, 200, map[string]bool{"ok": true})
 }
 
 func handleAudition(w http.ResponseWriter, r *http.Request) {
@@ -1611,15 +1628,20 @@ func handleBatchStatus(w http.ResponseWriter, r *http.Request) {
 	items := []map[string]any{}
 	done := 0
 	for rows.Next() {
-		var id, text, voice, instruct, fmt_, audioFile, status string
+		var id, text, voice, instruct, fmt_, status string
+		var audioFile sql.NullString
 		var speed, duration, createdAt float64
 		rows.Scan(&id, &text, &voice, &instruct, &speed, &fmt_, &audioFile, &duration, &status, &createdAt)
 		if status == "done" || status == "error" {
 			done++
 		}
+		af := ""
+		if audioFile.Valid {
+			af = audioFile.String
+		}
 		items = append(items, map[string]any{
 			"id": id, "text": text, "voice": voice, "instruct": instruct,
-			"speed": speed, "fmt": fmt_, "audio_file": audioFile, "duration": duration,
+			"speed": speed, "fmt": fmt_, "audio_file": af, "duration": duration,
 			"status": status, "created_at": createdAt,
 		})
 	}
@@ -1956,15 +1978,6 @@ func splitText(text string) []map[string]string {
 
 // ─── Helpers ─────────────────────────────────────────────
 
-// truncate by runes to avoid breaking UTF-8
-func truncate(s string, n int) string {
-	runes := []rune(s)
-	if len(runes) <= n {
-		return s
-	}
-	return string(runes[:n])
-}
-
 func round(v float64, d int) float64 {
 	p := 1.0
 	for i := 0; i < d; i++ {
@@ -2061,9 +2074,9 @@ func main() {
 	mux.HandleFunc("/api/resume", requireAuth(handleResume))
 	mux.HandleFunc("/api/voices", requireAuth(handleVoices))
 	mux.HandleFunc("/api/history", requireAuth(handleHistory))
-	mux.HandleFunc("/api/history/", requireAuth(handleDeleteHistory))
+	mux.HandleFunc("/api/history/", requireAuth(handleHistory))
 	mux.HandleFunc("/api/task/", requireAuth(handleTaskStatus))
-	mux.HandleFunc("/api/voices/", requireAuth(handleDeleteVoice))
+	mux.HandleFunc("/api/voices/", requireAuth(handleVoices))
 	mux.HandleFunc("/api/change-password", requireAuth(handleChangePassword))
 
 	// Audio serving (auth via header or ?token=) — path traversal safe

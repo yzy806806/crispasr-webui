@@ -318,12 +318,19 @@ async function checkVersion() {
 }
 
 // ─── Init ─────────────────────────────
+let textInputTimer = null;
 async function init() {
   if (await checkAuth()) showApp();
   document.getElementById('textInput').addEventListener('input', function(){
-    document.getElementById('charCount').textContent = this.value.length + '字';
-    chunksConfig = [];
-    document.getElementById('chunkPreview').classList.remove('show');
+    // Debounce: avoid DOM thrash on large paste/type
+    if (textInputTimer) clearTimeout(textInputTimer);
+    textInputTimer = setTimeout(() => {
+      document.getElementById('charCount').textContent = this.value.length + '字';
+      chunksConfig = [];
+      const cp = document.getElementById('chunkPreview');
+      if (cp.classList.contains('show')) cp.classList.remove('show');
+      textInputTimer = null;
+    }, 150);
   });
   const zone = document.getElementById('uploadZone');
   zone.ondragover = e => { e.preventDefault(); zone.style.borderColor='var(--accent)'; };
@@ -527,14 +534,21 @@ function pollProgress() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   const myTaskId = taskId;
   let attempts = 0;
-  pollTimer = setInterval(async () => {
+
+  async function tick() {
     attempts++;
-    if (attempts > 300) {
+    // Max ~1 hour: 30 ticks @2s + remaining @5s
+    if (attempts > 720) {
       clearInterval(pollTimer);
       pollTimer = null;
-      document.getElementById('progressText').textContent = '⏰ 生成超时，请重试';
+      document.getElementById('progressText').textContent = '⏰ 轮询超时，任务仍在后台运行，可在历史记录中查看';
       resetGenerateBtn();
       return;
+    }
+    // Slow down polling after initial phase (30 ticks = 60s)
+    if (attempts === 31) {
+      clearInterval(pollTimer);
+      pollTimer = setInterval(tick, 5000);
     }
     try {
       const resp = await apiFetch(`/api/task/${myTaskId}`);
@@ -565,7 +579,9 @@ function pollProgress() {
         document.getElementById('queueInfo').style.display = 'none';
       }
     } catch(e) { console.error(e); }
-  }, 2000);
+  }
+
+  pollTimer = setInterval(tick, 2000);
 }
 
 function showResult(audioUrl, duration) {
