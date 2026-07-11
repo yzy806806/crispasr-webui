@@ -16,6 +16,7 @@ A lightweight web UI for [CrispASR](https://github.com/CrispStrobe/CrispASR) TTS
 - 📈 System status monitoring (CPU / memory / disk / queue)
 - 🔐 Password authentication with JWT + bcrypt
 - ⚡ CrispASR auto start/stop — starts on demand, stops when idle to save memory
+- ⚙️ Settings panel — configure CrispASR path & port from WebUI
 - 📦 Single static binary — no Python, no pip, no venv
 
 ## Quick Start
@@ -68,7 +69,7 @@ Change password: click 🔑 Change Password in the sidebar. Forgot password:
 
 ```bash
 sudo systemctl stop crispasr-webui
-sqlite3 /var/lib/crispasr-webui/tts.db "DELETE FROM settings WHERE key='password';"
+sqlite3 /var/lib/crispasr-webui/history.db "DELETE FROM settings WHERE key='password';"
 sudo systemctl start crispasr-webui
 ```
 
@@ -103,7 +104,7 @@ Open http://localhost:8888
 
 ## Performance
 
-| Metric | Python (v0.9.3) | Go (v1.3.0) |
+| Metric | Python (v0.9.3) | Go (v1.4.0) |
 |--------|-----------------|-------------|
 | Total lines | 3,895 | 1,486 |
 | Backend files | 12 `.py` | 1 `.go` |
@@ -141,7 +142,7 @@ Open http://localhost:8888
 
 ```bash
 sudo systemctl stop crispasr-webui
-sqlite3 /var/lib/crispasr-webui/tts.db "DELETE FROM settings WHERE key='password';"
+sqlite3 /var/lib/crispasr-webui/history.db "DELETE FROM settings WHERE key='password';"
 sudo systemctl start crispasr-webui
 ```
 

@@ -48,6 +48,9 @@
         <div class="nav-item" data-panel="model" tabindex="0" onclick="switchNav('model')" onkeydown="if(event.key==='Enter'||event.key===' ')switchNav('model')">
           <span class="nav-icon">🧠</span> 模型
         </div>
+        <div class="nav-item" data-panel="settings" tabindex="0" onclick="switchNav('settings')" onkeydown="if(event.key==='Enter'||event.key===' ')switchNav('settings')">
+          <span class="nav-icon">⚙️</span> 设置
+        </div>
 
       </nav>
       <div class="sidebar-footer">
@@ -325,6 +328,24 @@
           </div>
           <div id="updateHint" style="display:none;margin-top:8px;padding:8px 12px;background:var(--bg);border-radius:8px;font-size:13px"></div>
           <button class="btn-secondary btn-sm" id="checkUpdateBtn" style="margin-top:8px" onclick="checkVersion()">检查版本</button>
+        </div>
+      </div>
+      <!-- Panel: Settings -->
+      <div class="panel" id="panelSettings">
+        <h2>⚙️ 设置</h2>
+        <div class="card">
+          <h3 style="font-size:15px;margin-bottom:12px">CrispASR 路径配置</h3>
+          <div class="form-group" style="margin-bottom:12px">
+            <label for="settingsCrispasrPath">CrispASR 二进制路径</label>
+            <input type="text" id="settingsCrispasrPath" placeholder="/opt/crispasr/bin/crispasr" style="width:100%">
+            <div class="hint">CrispASR 可执行文件的完整路径。留空则自动搜索标准位置。</div>
+          </div>
+          <div class="form-group" style="margin-bottom:12px">
+            <label for="settingsCrispasrPort">CrispASR 服务端口</label>
+            <input type="text" id="settingsCrispasrPort" placeholder="8080" style="width:100%">
+            <div class="hint">CrispASR 后端监听端口，需与 crispasr.service 中的 --port 一致。</div>
+          </div>
+          <button class="btn-primary" onclick="saveSettings()" id="saveSettingsBtn">保存设置</button>
         </div>
       </div>
 

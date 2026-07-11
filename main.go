@@ -23,12 +23,13 @@ import (
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // ─── Constants ──────────────────────────────────────────
 
 const (
-	appVersion    = "1.3.1"
+	appVersion    = "1.4.0"
 	wavHeaderSize = 44
 	splitThreshold = 800
 	loginRateLimit = 10
@@ -334,7 +335,9 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 400, map[string]string{"error": "无效请求"})
 		return
 	}
-	if !hmac.Equal([]byte(body.OldPassword), []byte(cfg.getPassword())) {
+	// Compare old password against stored bcrypt hash
+	stored := cfg.getPassword()
+	if err := bcrypt.CompareHashAndPassword([]byte(stored), []byte(body.OldPassword)); err != nil {
 		sendJSON(w, 401, map[string]string{"error": "原密码错误"})
 		return
 	}
@@ -342,8 +345,13 @@ func handleChangePassword(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 400, map[string]string{"error": "新密码至少4位"})
 		return
 	}
-	cfg.setPassword(body.NewPassword)
-	dbSetSetting("password", body.NewPassword)
+	hash, err := bcrypt.GenerateFromPassword([]byte(body.NewPassword), bcrypt.DefaultCost)
+	if err != nil {
+		sendJSON(w, 500, map[string]string{"error": "密码加密失败"})
+		return
+	}
+	cfg.setPassword(string(hash))
+	dbSetSetting("password", string(hash))
 	sendJSON(w, 200, map[string]string{"message": "密码已修改"})
 }
 
@@ -371,7 +379,9 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 		sendJSON(w, 400, map[string]string{"error": "无效请求"})
 		return
 	}
-	if !hmac.Equal([]byte(body.Password), []byte(cfg.getPassword())) {
+	// Compare password against stored bcrypt hash
+	stored := cfg.getPassword()
+	if err := bcrypt.CompareHashAndPassword([]byte(stored), []byte(body.Password)); err != nil {
 		sendJSON(w, 401, map[string]string{"error": "密码错误"})
 		return
 	}
@@ -2018,11 +2028,33 @@ func main() {
 		log.Fatal("DB init failed: ", err)
 	}
 
-	// Load password from DB (first run: persists default password)
+	// Load password from DB — migrate plaintext to bcrypt if needed
 	if saved := dbSetting("password"); saved != "" {
-		cfg.setPassword(saved)
+		// Check if it's already a bcrypt hash (starts with $2)
+		if strings.HasPrefix(saved, "$2") {
+			cfg.setPassword(saved)
+		} else {
+			// Legacy plaintext password — migrate to bcrypt
+			hash, err := bcrypt.GenerateFromPassword([]byte(saved), bcrypt.DefaultCost)
+			if err != nil {
+				log.Printf("WARN: failed to hash legacy password: %v", err)
+				cfg.setPassword(saved) // fallback to plaintext
+			} else {
+				hashStr := string(hash)
+				cfg.setPassword(hashStr)
+				dbSetSetting("password", hashStr)
+				log.Printf("AUTO: Migrated plaintext password to bcrypt hash")
+			}
+		}
 	} else {
-		dbSetSetting("password", defaultPassword)
+		// First run: hash the default password
+		hash, err := bcrypt.GenerateFromPassword([]byte(defaultPassword), bcrypt.DefaultCost)
+		if err != nil {
+			log.Fatalf("Failed to hash default password: %v", err)
+		}
+		hashStr := string(hash)
+		cfg.setPassword(hashStr)
+		dbSetSetting("password", hashStr)
 	}
 
 	// Initialize CrispASR state from current process reality

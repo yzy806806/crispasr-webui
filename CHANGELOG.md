@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.4.0 (2026-07-11)
+
+### 🔒 Security
+
+- **Password bcrypt hashing** — Passwords are now stored as bcrypt hashes in the database instead of plaintext. Login and change-password both use `bcrypt.CompareHashAndPassword`. Existing plaintext passwords are automatically migrated to bcrypt on first startup.
+
+### ✨ New Features
+
+- **Settings panel** — New ⚙️ Settings nav item with UI to configure CrispASR binary path and port directly from the WebUI. Previously only accessible via API.
+
+### 🐛 Fixes
+
+- **Version check hint corrected** — The "new version available" hint now shows `cmake -B build && cmake --build build` instead of `cargo build --release` (CrispASR is a C++ project, not Rust).
+- **install.sh cleanup** — Removed unused `WEBUI_USER` variable left over from the v3 root-execution refactor.
+- **README consistency** — Fixed `tts.db` → `history.db` in all password reset examples (both Chinese and English READMEs). Added Settings panel to feature list.
+
+### 📦 Upgrade Notes
+
+- The `golang.org/x/crypto/bcrypt` dependency is now required. `go mod tidy` will pull it automatically.
+- On first startup after upgrade, existing plaintext passwords are automatically hashed — no user action needed.
+
 ## v1.3.1 (2026-06-29)
 
 ### 🔒 Security Fixes

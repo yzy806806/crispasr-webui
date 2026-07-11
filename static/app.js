@@ -305,7 +305,7 @@ async function checkVersion() {
     } else if (data.latest && data.current !== data.latest) {
       el.textContent = `当前: ${data.current} | 最新: ${data.latest}`;
       hint.style.display = 'block';
-      hint.innerHTML = `🔄 有新版本可用！请从源码编译更新：<br><code style="font-size:12px">git pull && cargo build --release</code>`;
+      hint.innerHTML = `🔄 有新版本可用！请从源码编译更新：<br><code style="font-size:12px">git pull && cmake -B build && cmake --build build -j$(nproc)</code>`;
     } else if (data.latest) {
       el.textContent = `当前: ${data.current} | 已是最新`;
     } else {
@@ -1306,6 +1306,37 @@ function stopLogsRefresh() {
   if (logsTimer) { clearInterval(logsTimer); logsTimer = null; }
 }
 
+// ─── Settings ──────────────────────────
+async function loadSettings() {
+  try {
+    const resp = await apiFetch('/api/settings');
+    const data = await resp.json();
+    document.getElementById('settingsCrispasrPath').value = data.crispasr_path || '';
+    document.getElementById('settingsCrispasrPort').value = data.crispasr_port || '';
+  } catch(e) { console.error('Settings load error:', e); }
+}
+
+async function saveSettings() {
+  const btn = document.getElementById('saveSettingsBtn');
+  btn.disabled = true; btn.textContent = '保存中...';
+  try {
+    const resp = await apiFetch('/api/settings/save', {
+      method: 'POST',
+      body: JSON.stringify({
+        crispasr_path: document.getElementById('settingsCrispasrPath').value.trim(),
+        crispasr_port: document.getElementById('settingsCrispasrPort').value.trim(),
+      }),
+    });
+    const data = await resp.json();
+    if (resp.ok) {
+      toast('设置已保存', 'success');
+    } else {
+      toast(data.error || '保存失败', 'error');
+    }
+  } catch(e) { toast('保存失败: ' + e.message, 'error'); }
+  btn.disabled = false; btn.textContent = '保存设置';
+}
+
 // ─── Presets ──────────────────────────
 let _presetsCache = [];
 
@@ -1384,6 +1415,7 @@ function switchNav(name) {
     if (name === 'update') checkUpdate();
     if (name === 'clone') loadVoiceList();
     if (name === 'compare') loadCompareVoices();
+    if (name === 'settings') loadSettings();
   }
   if (name === 'status') startStatusRefresh();
   if (name === 'logs') startLogsRefresh();

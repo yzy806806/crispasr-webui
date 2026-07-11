@@ -15,6 +15,7 @@
 - 📈 **系统监控** — CPU / 内存 / 磁盘实时状态
 - 🔒 **密码认证** — JWT + bcrypt，密钥自动持久化
 - ⚡ **自动启停** — 有任务自动拉起 CrispASR，空闲自动停止
+- ⚙️ **设置面板** — WebUI 内配置 CrispASR 路径和端口
 - 📱 **响应式界面** — 深色主题，支持移动端
 
 ## 快速开始
@@ -67,7 +68,7 @@ sudo find /tmp -name '*.so*' -type f -exec cp {} /opt/crispasr/lib/ \;
 
 ```bash
 sudo systemctl stop crispasr-webui
-sqlite3 /var/lib/crispasr-webui/tts.db "DELETE FROM settings WHERE key='password';"
+sqlite3 /var/lib/crispasr-webui/history.db "DELETE FROM settings WHERE key='password';"
 sudo systemctl start crispasr-webui
 ```
 
@@ -129,7 +130,7 @@ CRISPASR_DIR=/opt/crispasr ./crispasr-webui
 
 ```bash
 sudo systemctl stop crispasr-webui
-sqlite3 /var/lib/crispasr-webui/tts.db "DELETE FROM settings WHERE key='password';"
+sqlite3 /var/lib/crispasr-webui/history.db "DELETE FROM settings WHERE key='password';"
 sudo systemctl start crispasr-webui
 ```
 

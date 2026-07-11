@@ -16,7 +16,6 @@ INSTALL_DIR="${INSTALL_DIR:-/opt/crispasr}"
 DATA_DIR="${DATA_DIR:-/var/lib/crispasr-webui}"
 WEBUI_PORT="${WEBUI_PORT:-8888}"
 CRISPASR_PORT="${CRISPASR_PORT:-8080}"
-WEBUI_USER="${WEBUI_USER:-crispasr}"
 
 # ─── Colors ───────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
@@ -178,7 +177,7 @@ EOF
     echo -e "  Password: 12345678 (default, change in Settings)"
     echo ""
     echo -e "  ${YELLOW}📌 CrispASR not included.${NC} Install it separately, then configure the"
-    echo -e "     path in WebUI → 🧠 模型选择 → 点击任意模型开始使用。"
+    echo -e "     path in WebUI → ⚙️ Settings, then pick a model in 🧠 Model."
     echo ""
     echo -e "  Service:  ${CYAN}systemctl status crispasr-webui${NC}"
     echo -e "  Logs:     ${CYAN}journalctl -u crispasr-webui -f${NC}"
