@@ -15,6 +15,7 @@
 - **Version check hint corrected** — The "new version available" hint now shows `cmake -B build && cmake --build build` instead of `cargo build --release` (CrispASR is a C++ project, not Rust).
 - **install.sh cleanup** — Removed unused `WEBUI_USER` variable left over from the v3 root-execution refactor.
 - **README consistency** — Fixed `tts.db` → `history.db` in all password reset examples (both Chinese and English READMEs). Added Settings panel to feature list.
+- **Auto-stop for externally-started CrispASR** — When the WebUI starts and detects CrispASR already running (e.g. started manually via `systemctl start crispasr`), it now schedules the idle auto-stop timer. Previously, only CrispASR instances started by the WebUI's own auto-start mechanism would be auto-stopped.
 
 ### 📦 Upgrade Notes
 

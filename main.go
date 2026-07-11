@@ -2062,6 +2062,9 @@ func main() {
 		crispASRState = "running"
 		lastActiveTime = time.Now()
 		log.Printf("AUTO: CrispASR already running")
+		// Schedule auto-stop for externally-started crispasr — if no tasks
+		// arrive within the idle timeout, it will be stopped automatically.
+		scheduleCrispASRStop()
 	} else {
 		crispASRState = "stopped"
 		if cfg.AutoStartStop {
