@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -37,7 +38,7 @@ const (
 	maxBatchItems = 20
 	minPasswordLen = 4
 	defaultPassword = "12345678" // first-run default, persisted to DB on init
-	httpClientTimeout = 1800 * time.Second  // 30min — ARM CPU RTF~10x, 200字≈9min
+	httpClientTimeout = 7200 * time.Second  // 2h — ARM CPU RTF~11x, 800字≈35min per chunk
 	maxAudioSize = 100 << 20 // 100MB safety cap for single TTS response
 	crispASRIdleTimeout = 5 * time.Minute // auto-stop crispasr after 5 min idle
 	crispASRStartWait   = 120 * time.Second // max wait for crispasr to become ready
@@ -655,14 +656,57 @@ func processTask(t *Task) {
 	if err := json.Unmarshal([]byte(t.ChunksJSON), &chunks); err != nil {
 		t.Status = "error"
 		t.Error = "无效的分句数据"
+		log.Printf("Task %s: invalid chunks: %v", t.ID, err)
 		dbExec("UPDATE history SET status='error' WHERE id=?", t.ID)
 		return
 	}
 
 	t.Status = "generating"
 	dbExec("UPDATE history SET status='generating' WHERE id=?", t.ID)
+	log.Printf("Task %s: starting %d chunks, fmt=%s", t.ID, len(chunks), t.Fmt)
 
-	var combined [][]byte
+	// Determine output format and file extension
+	outFmt := t.Fmt
+	if outFmt == "" {
+		outFmt = "wav"
+	}
+	// ogg is treated as mp3 for now (ffmpeg handles both)
+	if outFmt != "wav" && outFmt != "mp3" {
+		outFmt = "wav"
+	}
+
+	audioDir := filepath.Join(cfg.DataDir, "audio")
+	os.MkdirAll(audioDir, 0755)
+
+	// For WAV: we write the header first, then append raw data from each chunk.
+	// For MP3: we convert each chunk's WAV to MP3 via ffmpeg, then cat-append.
+	var outFile *os.File
+	var wavDataSize uint32 // tracked for WAV header fixup
+
+	audioExt := "." + outFmt
+	finalPath := filepath.Join(audioDir, t.ID+audioExt)
+
+	if outFmt == "wav" {
+		// Create WAV file with placeholder header; we'll fixup sizes at the end.
+		var err error
+		outFile, err = os.Create(finalPath)
+		if err != nil {
+			t.Status = "error"
+			t.Error = "创建输出文件失败"
+			log.Printf("Task %s: create file error: %v", t.ID, err)
+			dbExec("UPDATE history SET status='error' WHERE id=?", t.ID)
+			return
+		}
+		// Ensure outFile is used in all error paths below
+		defer func() {
+			if outFile != nil {
+				outFile.Close()
+			}
+		}()
+	}
+
+	totalDuration := 0.0
+
 	for i, chunk := range chunks {
 		t.Current = i + 1
 		t.Progress = float64(t.Current) / float64(t.Total) * 100
@@ -673,6 +717,8 @@ func processTask(t *Task) {
 		}
 		instruct := chunk["instruct"]
 		text := chunk["text"]
+
+		log.Printf("Task %s: chunk %d/%d (%d chars)", t.ID, i+1, t.Total, len([]rune(text)))
 
 		payload, _ := json.Marshal(map[string]any{
 			"model": "tts-1", "input": text, "voice": voice,
@@ -692,7 +738,11 @@ func processTask(t *Task) {
 		if err != nil {
 			t.Status = "error"
 			t.Error = err.Error()
+			log.Printf("Task %s: chunk %d HTTP error: %v", t.ID, i+1, err)
 			dbExec("UPDATE history SET status='error' WHERE id=?", t.ID)
+			if outFile != nil {
+				outFile.Close()
+			}
 			return
 		}
 		if resp.StatusCode != 200 {
@@ -701,30 +751,62 @@ func processTask(t *Task) {
 			errMsg := fmt.Sprintf("CrispASR returned %d: %s", resp.StatusCode, string(body))
 			t.Status = "error"
 			t.Error = errMsg
+			log.Printf("Task %s: chunk %d CrispASR error: %s", t.ID, i+1, errMsg)
 			dbExec("UPDATE history SET status='error' WHERE id=?", t.ID)
+			if outFile != nil {
+				outFile.Close()
+			}
 			return
 		}
-		audio, _ := io.ReadAll(io.LimitReader(resp.Body, maxAudioSize))
+		wavData, _ := io.ReadAll(io.LimitReader(resp.Body, maxAudioSize))
 		resp.Body.Close()
-		combined = append(combined, audio)
+		chunkDur := wavDuration(wavData)
+		totalDuration += chunkDur
+		log.Printf("Task %s: chunk %d done (%d bytes, %.1fs audio)", t.ID, i+1, len(wavData), chunkDur)
+
+		// Incremental write: append this chunk to the output file immediately
+		if outFmt == "wav" {
+			if i == 0 {
+				// First chunk: write the full WAV (with header) as-is
+				outFile.Write(wavData)
+				wavDataSize = uint32(len(wavData) - wavHeaderSize)
+			} else {
+				// Subsequent chunks: skip WAV header, append raw PCM data
+				if len(wavData) > wavHeaderSize {
+					outFile.Write(wavData[wavHeaderSize:])
+					wavDataSize += uint32(len(wavData) - wavHeaderSize)
+				}
+			}
+		} else {
+			// MP3: convert this chunk's WAV to MP3, then append to final file
+			if err := appendMP3Chunk(finalPath, wavData, i == 0); err != nil {
+				t.Status = "error"
+				t.Error = "MP3转码失败: " + err.Error()
+				log.Printf("Task %s: chunk %d MP3 error: %v", t.ID, i+1, err)
+				dbExec("UPDATE history SET status='error' WHERE id=?", t.ID)
+				return
+			}
+		}
+
+		// Update progress in DB so the task can be resumed/monitored
+		dbExec("UPDATE history SET status='generating' WHERE id=?", t.ID)
 	}
 
-	finalWAV := concatWAVs(combined)
-	audioFile := t.ID + ".wav"
-	os.MkdirAll(filepath.Join(cfg.DataDir, "audio"), 0755)
-	if err := os.WriteFile(filepath.Join(cfg.DataDir, "audio", audioFile), finalWAV, 0644); err != nil {
-		t.Status = "error"
-		t.Error = "写入音频文件失败"
-		dbExec("UPDATE history SET status='error' WHERE id=?", t.ID)
-		return
+	// Finalize output file
+	if outFmt == "wav" && outFile != nil {
+		outFile.Close()
+		// Fixup WAV header sizes
+		fixWAVHeader(finalPath, wavDataSize)
 	}
 
-	duration := wavDuration(finalWAV)
+	audioFile := t.ID + audioExt
 	t.Status = "done"
 	t.AudioURL = "/api/audio/" + audioFile
-	t.Duration = duration
+	t.Duration = totalDuration
 
-	dbExec("UPDATE history SET status='done',audio_file=?,duration=? WHERE id=?", audioFile, duration, t.ID)
+	dbExec("UPDATE history SET status='done',audio_file=?,duration=? WHERE id=?",
+		audioFile, totalDuration, t.ID)
+	log.Printf("Task %s: complete — %d chunks, %.1fs total, %s", t.ID, len(chunks), totalDuration, outFmt)
 }
 
 // dbExec logs errors and returns them so callers can decide.
@@ -734,6 +816,70 @@ func dbExec(query string, args ...any) error {
 		return err
 	}
 	return nil
+}
+
+// appendMP3Chunk converts a WAV chunk to MP3 via ffmpeg and appends it to the output file.
+// If isFirst is true, the output file is created (truncated); otherwise data is appended.
+func appendMP3Chunk(outPath string, wavData []byte, isFirst bool) error {
+	// Write WAV to temp file
+	tmpWav := outPath + ".tmp.wav"
+	if err := os.WriteFile(tmpWav, wavData, 0644); err != nil {
+		return err
+	}
+	defer os.Remove(tmpWav)
+
+	// Convert to MP3 via ffmpeg
+	tmpMp3 := outPath + ".tmp.mp3"
+	cmd := exec.Command("ffmpeg", "-y", "-i", tmpWav, "-codec:a", "libmp3lame", "-qscale:a", "2", tmpMp3)
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	if err := cmd.Run(); err != nil {
+		os.Remove(tmpMp3)
+		return err
+	}
+	defer os.Remove(tmpMp3)
+
+	// Append MP3 data to output file
+	mp3Data, err := os.ReadFile(tmpMp3)
+	if err != nil {
+		return err
+	}
+
+	var out *os.File
+	if isFirst {
+		out, err = os.Create(outPath)
+	} else {
+		out, err = os.OpenFile(outPath, os.O_WRONLY|os.O_APPEND, 0644)
+	}
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = out.Write(mp3Data)
+	return err
+}
+
+// fixWAVHeader updates the RIFF and data chunk sizes in a WAV file
+// after raw PCM data has been appended incrementally.
+func fixWAVHeader(path string, dataSize uint32) error {
+	f, err := os.OpenFile(path, os.O_RDWR, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// RIFF chunk size = dataSize + 36 (header minus 8 bytes for "RIFF" and size field)
+	// Data chunk size = dataSize
+	// These are at offsets 4-7 and 40-43 respectively (little-endian uint32)
+	buf := make([]byte, 4)
+	binary.LittleEndian.PutUint32(buf, dataSize+36)
+	if _, err := f.WriteAt(buf, 4); err != nil {
+		return err
+	}
+	binary.LittleEndian.PutUint32(buf, dataSize)
+	_, err = f.WriteAt(buf, 40)
+	return err
 }
 
 func concatWAVs(wavs [][]byte) []byte {

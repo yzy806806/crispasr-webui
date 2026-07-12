@@ -537,18 +537,22 @@ function pollProgress() {
 
   async function tick() {
     attempts++;
-    // Max ~1 hour: 30 ticks @2s + remaining @5s
-    if (attempts > 720) {
+    // Max ~20 hours: 30 ticks @2s + 570 ticks @5s + remaining @30s
+    if (attempts > 2880) {
       clearInterval(pollTimer);
       pollTimer = null;
       document.getElementById('progressText').textContent = '⏰ 轮询超时，任务仍在后台运行，可在历史记录中查看';
       resetGenerateBtn();
       return;
     }
-    // Slow down polling after initial phase (30 ticks = 60s)
+    // Slow down polling: 2s for first 60s, 5s for next 47min, then 30s
     if (attempts === 31) {
       clearInterval(pollTimer);
       pollTimer = setInterval(tick, 5000);
+    }
+    if (attempts === 601) {
+      clearInterval(pollTimer);
+      pollTimer = setInterval(tick, 30000);
     }
     try {
       const resp = await apiFetch(`/api/task/${myTaskId}`);
