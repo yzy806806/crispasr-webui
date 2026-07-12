@@ -11,6 +11,8 @@ A lightweight web UI for [CrispASR](https://github.com/CrispStrobe/CrispASR) TTS
 - 🔊 Text-to-speech with voice selection & style control
 - 🎤 Voice cloning (upload or record reference audio)
 - 📊 Batch synthesis & voice comparison
+- 🎵 MP3/WAV output with incremental ffmpeg transcoding
+- 📦 Incremental audio write — peak memory ~11MB for 25k-char tasks
 - 📜 History with search, pagination, batch delete
 - 🧠 Model switching with quantization level selection, auto-download
 - 📈 System status monitoring (CPU / memory / disk / queue)

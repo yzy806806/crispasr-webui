@@ -1,6 +1,6 @@
 # Changelog
 
-## v1.4.0 (2026-07-11)
+## v1.4.0 (2026-07-12)
 
 ### 🔒 Security
 
@@ -9,6 +9,8 @@
 ### ✨ New Features
 
 - **Settings panel** — New ⚙️ Settings nav item with UI to configure CrispASR binary path and port directly from the WebUI. Previously only accessible via API.
+- **MP3 output** — Users can now select MP3 format for audio output. Each chunk is converted via ffmpeg and appended incrementally to the output file. Previously only WAV was supported regardless of the format selector.
+- **Incremental audio write** — `processTask` no longer accumulates all chunk audio in memory. Each chunk is written to the output file immediately after CrispASR returns. Peak memory drops from ~360MB to ~11MB for a 25k-character, 33-chunk task.
 
 ### 🐛 Fixes
 
@@ -16,11 +18,15 @@
 - **install.sh cleanup** — Removed unused `WEBUI_USER` variable left over from the v3 root-execution refactor.
 - **README consistency** — Fixed `tts.db` → `history.db` in all password reset examples (both Chinese and English READMEs). Added Settings panel to feature list.
 - **Auto-stop for externally-started CrispASR** — When the WebUI starts and detects CrispASR already running (e.g. started manually via `systemctl start crispasr`), it now schedules the idle auto-stop timer. Previously, only CrispASR instances started by the WebUI's own auto-start mechanism would be auto-stopped.
+- **HTTP client timeout** — Increased from 30min to 2h. ARM CPU RTF~11x means a single 800-char chunk takes ~35min; the old 30min timeout caused `context deadline exceeded` errors.
+- **Frontend poll timeout** — Extended from ~1h to ~20h with adaptive interval (2s → 5s → 30s) for ultra-long tasks.
+- **processTask logging** — Added chunk-level logging (char count, audio bytes, duration) for debugging failed tasks.
 
 ### 📦 Upgrade Notes
 
 - The `golang.org/x/crypto/bcrypt` dependency is now required. `go mod tidy` will pull it automatically.
 - On first startup after upgrade, existing plaintext passwords are automatically hashed — no user action needed.
+- MP3 output requires `ffmpeg` installed on the server.
 
 ## v1.3.1 (2026-06-29)
 
