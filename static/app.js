@@ -597,7 +597,10 @@ function showResult(audioUrl, duration) {
 
 function downloadAudio() {
   if (!currentAudioUrl) return;
-  triggerDownload(currentAudioUrl, `tts_${selectedVoice}_${Date.now()}.${currentFmt}`);
+  // Extract extension from the audio URL (e.g. "/api/audio/abc123.mp3" → "mp3")
+  const parts = currentAudioUrl.split('.');
+  const ext = parts.length > 1 ? parts.pop().split('?')[0] : currentFmt;
+  triggerDownload(currentAudioUrl, `tts_${selectedVoice}_${Date.now()}.${ext}`);
 }
 
 // ─── Voice Clone ──────────────────────
@@ -1204,7 +1207,9 @@ async function regenerateFromHistory(id) {
 }
 
 function downloadHistoryAudio(audioFile, id) {
-  triggerDownload(authUrl(`/api/audio/${audioFile}`), `tts_${id}.wav`);
+  // Extract the real extension from audioFile (e.g. "abc.mp3" → "mp3")
+  const ext = audioFile.includes('.') ? audioFile.split('.').pop() : 'wav';
+  triggerDownload(authUrl(`/api/audio/${audioFile}`), `tts_${id}.${ext}`);
 }
 
 async function playHistory(audioFile) {
