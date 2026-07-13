@@ -679,15 +679,35 @@ func processTask(t *Task) {
 	os.MkdirAll(audioDir, 0755)
 
 	// For WAV: we write the header first, then append raw data from each chunk.
-	// For MP3: we convert each chunk's WAV to MP3 via ffmpeg, then cat-append.
+	// For MP3: we incrementally write a temp WAV file, then ffmpeg-convert
+	// the whole thing at the end into one clean MP3 (single ID3 header).
 	var outFile *os.File
 	var wavDataSize uint32 // tracked for WAV header fixup
 
 	audioExt := "." + outFmt
 	finalPath := filepath.Join(audioDir, t.ID+audioExt)
 
-	if outFmt == "wav" {
-		// Create WAV file with placeholder header; we'll fixup sizes at the end.
+	// For MP3: we write chunks to a temp WAV first, convert at the end.
+	var wavPath string
+	if outFmt == "mp3" {
+		wavPath = filepath.Join(audioDir, t.ID+".tmp.wav")
+		// Ensure temp WAV is cleaned up on any exit path
+		defer os.Remove(wavPath)
+		var err error
+		outFile, err = os.Create(wavPath)
+		if err != nil {
+			t.Status = "error"
+			t.Error = "创建临时文件失败"
+			log.Printf("Task %s: create temp wav error: %v", t.ID, err)
+			dbExec("UPDATE history SET status='error' WHERE id=?", t.ID)
+			return
+		}
+		defer func() {
+			if outFile != nil {
+				outFile.Close()
+			}
+		}()
+	} else if outFmt == "wav" {
 		var err error
 		outFile, err = os.Create(finalPath)
 		if err != nil {
@@ -697,7 +717,6 @@ func processTask(t *Task) {
 			dbExec("UPDATE history SET status='error' WHERE id=?", t.ID)
 			return
 		}
-		// Ensure outFile is used in all error paths below
 		defer func() {
 			if outFile != nil {
 				outFile.Close()
@@ -764,27 +783,18 @@ func processTask(t *Task) {
 		totalDuration += chunkDur
 		log.Printf("Task %s: chunk %d done (%d bytes, %.1fs audio)", t.ID, i+1, len(wavData), chunkDur)
 
-		// Incremental write: append this chunk to the output file immediately
-		if outFmt == "wav" {
-			if i == 0 {
-				// First chunk: write the full WAV (with header) as-is
-				outFile.Write(wavData)
-				wavDataSize = uint32(len(wavData) - wavHeaderSize)
-			} else {
-				// Subsequent chunks: skip WAV header, append raw PCM data
-				if len(wavData) > wavHeaderSize {
-					outFile.Write(wavData[wavHeaderSize:])
-					wavDataSize += uint32(len(wavData) - wavHeaderSize)
-				}
-			}
+		// Incremental write: append this chunk's WAV data to the output file.
+		// For both WAV and MP3 modes, we write WAV data incrementally.
+		// For MP3, the temp WAV is converted to MP3 at the end.
+		if i == 0 {
+			// First chunk: write the full WAV (with header) as-is
+			outFile.Write(wavData)
+			wavDataSize = uint32(len(wavData) - wavHeaderSize)
 		} else {
-			// MP3: convert this chunk's WAV to MP3, then append to final file
-			if err := appendMP3Chunk(finalPath, wavData, i == 0); err != nil {
-				t.Status = "error"
-				t.Error = "MP3转码失败: " + err.Error()
-				log.Printf("Task %s: chunk %d MP3 error: %v", t.ID, i+1, err)
-				dbExec("UPDATE history SET status='error' WHERE id=?", t.ID)
-				return
+			// Subsequent chunks: skip WAV header, append raw PCM data
+			if len(wavData) > wavHeaderSize {
+				outFile.Write(wavData[wavHeaderSize:])
+				wavDataSize += uint32(len(wavData) - wavHeaderSize)
 			}
 		}
 
@@ -793,10 +803,33 @@ func processTask(t *Task) {
 	}
 
 	// Finalize output file
-	if outFmt == "wav" && outFile != nil {
+	// Close the WAV file (either final or temp) and fixup header
+	if outFile != nil {
 		outFile.Close()
-		// Fixup WAV header sizes
+		outFile = nil
+	}
+
+	if outFmt == "wav" {
+		// WAV: just fixup the header
 		fixWAVHeader(finalPath, wavDataSize)
+	} else {
+		// MP3: fixup temp WAV header, then convert to MP3 via ffmpeg
+		fixWAVHeader(wavPath, wavDataSize)
+		log.Printf("Task %s: converting temp WAV to MP3 (%.1fs audio)...", t.ID, totalDuration)
+		cmd := exec.Command("ffmpeg", "-y", "-i", wavPath, "-codec:a", "libmp3lame", "-qscale:a", "2", finalPath)
+		cmd.Stdout = nil
+		cmd.Stderr = nil
+		if err := cmd.Run(); err != nil {
+			t.Status = "error"
+			t.Error = "MP3转码失败: " + err.Error()
+			log.Printf("Task %s: ffmpeg error: %v", t.ID, err)
+			dbExec("UPDATE history SET status='error' WHERE id=?", t.ID)
+			os.Remove(wavPath)
+			return
+		}
+		// Clean up temp WAV
+		os.Remove(wavPath)
+		log.Printf("Task %s: MP3 conversion done", t.ID)
 	}
 
 	audioFile := t.ID + audioExt
