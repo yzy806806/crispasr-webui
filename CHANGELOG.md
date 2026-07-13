@@ -28,6 +28,15 @@
 - On first startup after upgrade, existing plaintext passwords are automatically hashed — no user action needed.
 - MP3 output requires `ffmpeg` installed on the server.
 
+### 📊 Verified: 25k-char, 33-chunk task
+
+Real-world test on Oracle Cloud A1 (2C ARM, RTF~11.3x):
+- Input: ~25,000 Chinese characters, split into 33 chunks (~800 chars each)
+- Output: 99-minute MP3, 47 MB (vs ~285GB WAV if old architecture)
+- Total time: 18h 44min (33 × ~35min per chunk)
+- Peak memory: ~11MB (single chunk in memory at a time)
+- No timeout, no OOM, no manual intervention
+
 ## v1.3.1 (2026-06-29)
 
 ### 🔒 Security Fixes
