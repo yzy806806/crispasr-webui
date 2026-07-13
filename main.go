@@ -30,7 +30,7 @@ import (
 // ─── Constants ──────────────────────────────────────────
 
 const (
-	appVersion    = "1.4.0"
+	appVersion    = "1.4.1"
 	wavHeaderSize = 44
 	splitThreshold = 800
 	loginRateLimit = 10

@@ -1,6 +1,18 @@
 # Changelog
 
-## v1.4.0 (2026-07-12)
+## v1.4.1 (2026-07-13)
+
+### 🐛 Fixes
+
+- **MP3 output: single ffmpeg pass** — Replaced per-chunk MP3 cat-append with a single ffmpeg conversion pass. The old approach produced MP3 files with multiple ID3 headers (37 in a 33-chunk task), causing many players to misparse the file (content appeared to repeat or fail to play). Now all chunks are incrementally written to a temp WAV file, then ffmpeg converts the complete WAV to one clean MP3 with a single ID3 header.
+- **Download filename extension** — `downloadHistoryAudio` and `downloadAudio` no longer hardcode `.wav`. The real extension is extracted from the audio filename/URL, so MP3 files download with the correct `.mp3` extension.
+- **Browser cache busting** — `app.js` script tag now includes a `?v=` version parameter so users get the latest JS after updates without needing to hard-refresh.
+
+### 📊 Verified: MP3 compatibility
+
+- 33-chunk MP3 output: single ID3 header, plays correctly in all tested players
+- Temp WAV file automatically cleaned up on all exit paths (including errors)
+- File size: 99-minute MP3 = 47MB (vs 285MB WAV)
 
 ### 🔒 Security
 
